@@ -8,6 +8,7 @@
 - `口播视频全要素制作规范_含对标提示词附录_2026-08-07.md`：完整细节母库与四段对标提示词案例附录。
 - `对标提示词原文与导演式分析附录.md`：四段对标提示词的独立可编辑同步源。
 - `PROCESS_AUDIT_2026-08-06.md`：变更记录、问题和流程门禁。
-- `koubo-shared-rules.html`：便于浏览的静态展示页。
+- `index.html`：GitHub Pages首页，便于直接浏览的静态展示页。
+- `koubo-shared-rules.html`：同内容的本地展示副本。
 
 修改Markdown后，应重新生成HTML；HTML只是展示副本，Markdown才是协作源。
