@@ -21,6 +21,9 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Iterable
 
+from .subtitle_style import (create_reference_samples, create_style_template,
+                             read_style_profile, convert_matched_ass)
+
 
 def require_binary(name: str) -> None:
     if shutil.which(name) is None:
@@ -312,6 +315,12 @@ def make_reference(args) -> None:
     if not captions:
         raise RuntimeError("当前视频时间范围内无有效字幕")
     save_srt(captions,out/"captions.srt")
+    # These are visual samples, NOT an automatic font recognition claim.
+    reference_samples=create_reference_samples(source,captions,out/"subtitle_samples",
+                                                info["width"],info["height"])
+    profile_template=out/"subtitle_style_profile.json"
+    create_style_template(profile_template,info["width"],info["height"])
+    print(f"[subtitle style] 已生成对标截图 {reference_samples}; 样式待人工/视觉模型核实: {profile_template}",flush=True)
     shots = detect_scenes(source,info["duration"],step=args.scene_step)
     cuts = choose_cuts(info["duration"],shots,captions,maximum=args.max_seconds)
     font = str(args.font_file) if args.font_file else ffmpeg_font()
@@ -329,11 +338,15 @@ def make_reference(args) -> None:
                         "duration":round(end-start,3),"encoded_duration":round(actual["duration"],3),
                         "scene_label":f"镜头{i:03d}","role":"待确认"})
         print(f"[reference] {filename} {start:.2f}–{end:.2f}s",flush=True)
-    manifest={"version":"0.1.0","reference_filename":source.name,
+    manifest={"version":"0.2.0","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
-              "caption_source":origin,"watermark":{
+              "caption_source":origin,
+              "subtitle_style_status":"pending_visual_review",
+              "subtitle_style_profile":"subtitle_style_profile.json",
+              "subtitle_sample_contact":"subtitle_samples/subtitle_reference_contact.jpg",
+              "watermark":{
                   "scheme":"C","text_alpha":0.4,"stroke_alpha":0.8,
                   "landscape_stroke_px_at_1920w":10,"portrait_stroke_px_at_1080w":7},
               "segments":entries,"scene_detected_at":shots,
@@ -342,7 +355,15 @@ def make_reference(args) -> None:
     with zipfile.ZipFile(out/"numbered_segments.zip","w",zipfile.ZIP_DEFLATED) as archive:
         for file in sorted(clip_dir.glob("*.mp4")):
             archive.write(file,arcname=file.name)
-    print(f"完成：{len(entries)}段；{out/'numbered_segments.zip'}；{out/'captions.srt'}")
+    # Easy cross-window transfer: includes reference samples, timing and style status,
+    # never the full original video or private audio.
+    with zipfile.ZipFile(out/"subtitle_reference_stylekit.zip","w",zipfile.ZIP_DEFLATED) as archive:
+        for name in ("captions.srt","manifest.json","subtitle_style_profile.json"):
+            archive.write(out/name,arcname=name)
+        for sample in sorted((out/"subtitle_samples").glob("*")):
+            if sample.is_file():
+                archive.write(sample,arcname="subtitle_samples/"+sample.name)
+    print(f"完成：{len(entries)}段；{out/'numbered_segments.zip'}；{out/'captions.srt'}；字幕样式参考包 {out/'subtitle_reference_stylekit.zip'}")
 
 
 def resolve_order(clips: list[Path], order_file: Path|None,
@@ -578,7 +599,24 @@ def assemble(args)->None:
                 start=clips_report[n-1]["start"]
                 skip.append((start,start+clips_report[n-1]["duration"]))
             ass=scratch/"subtitles.ass"
-            convert_srt_to_ass(captions,ass,infos[0],args.subtitle_style,args.subtitle_y,skip)
+            profile_file=args.subtitle_profile
+            if profile_file is None and args.manifest:
+                profile_file=args.manifest.parent/"subtitle_style_profile.json"
+            if profile_file is not None:
+                if not profile_file.is_file():
+                    raise FileNotFoundError(f"缺少对标字幕样式配置：{profile_file}。请先审阅第一阶段 subtitle_samples/ 截图并填写配置；确认无画面字幕才用后备风格")
+                verified_profile=read_style_profile(profile_file)
+                if verified_profile is None:
+                    print(f"[subtitles] 对标确认为无画面字幕，使用后备方案 {args.subtitle_style}",flush=True)
+                    convert_srt_to_ass(captions,ass,infos[0],args.subtitle_style,args.subtitle_y,skip)
+                else:
+                    print(f"[subtitles] 根据对标视觉核对配置还原字幕：{profile_file}",flush=True)
+                    convert_matched_ass(captions,ass,infos[0]['width'],infos[0]['height'],verified_profile,skip)
+            else:
+                if args.reference:
+                    raise ValueError("已提供对标视频，但未提供 --manifest/--subtitle-profile 视觉核对信息；为避免固定套用B字体，请先制作对标样式配置")
+                print("[subtitles] 未提供对标：使用后备字幕方案",flush=True)
+                convert_srt_to_ass(captions,ass,infos[0],args.subtitle_style,args.subtitle_y,skip)
             filters.append("ass='"+str(ass).replace("'","\\'")+"'")
         argv=["ffmpeg","-hide_banner","-loglevel","error","-y",
               "-f","concat","-safe","0","-i",str(concat)]
@@ -598,11 +636,12 @@ def assemble(args)->None:
     final=media_info(target)
     if abs(final["duration"]-video_dur)>max(.35, len(clips)*.05):
         raise RuntimeError(f"导出时长异常：预计{video_dur:.2f}s，实际{final['duration']:.2f}s；请检查输入音视频时间戳")
-    report={"version":"0.1.0","source_count":len(clips),"order_method":method,
+    report={"version":"0.2.0","source_count":len(clips),"order_method":method,
             "clips":clips_report,"target":target.name,"duration":round(final['duration'],3),
             "width":final['width'],"height":final['height'],"fps":final['fps'],
             "color_grade":not args.no_grade,"color_grade_type":"simulated_dehaze",
             "original_audio_replaced":args.replace_audio,"subtitle_burned":args.burn_subtitles,
+            "subtitle_style_source":("reference_visual_profile" if args.burn_subtitles and "verified_profile" in locals() and verified_profile else ("confirmed_no_reference_subtitles_fallback" if args.burn_subtitles and "verified_profile" in locals() else ("legacy_fallback_no_reference" if args.burn_subtitles else "not_applied"))),
             "output_sha256":sha256(target)}
     report_path=target.with_suffix(".report.json")
     report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
@@ -635,7 +674,10 @@ def parser()->argparse.ArgumentParser:
     ass.add_argument("--replace-audio",action="store_true",help="明确要求时才执行")
     ass.add_argument("--burn-subtitles",action="store_true",help="明确要求时才执行")
     ass.add_argument("--srt",type=Path,help="阶段一生成的 captions.srt")
-    ass.add_argument("--subtitle-style",choices=["A","B","C"],default="B")
+    ass.add_argument("--subtitle-style",choices=["A","B","C"],default="B",
+                     help="仅确认对标无字幕（或完全未提供对标）时使用的后备方案")
+    ass.add_argument("--subtitle-profile",type=Path,
+                     help="对标字幕视觉核验配置 JSON；若给 --manifest 则自动读取其目录下的配置")
     ass.add_argument("--subtitle-y",type=int,help="字幕中心Y坐标，默认画面高度的59%")
     ass.add_argument("--skip-existing-subs",nargs="*",default=[],help="已有硬字幕的片段编号，避免叠加")
     ass.add_argument("--audio-tolerance",type=float,default=.75,help="允许原声和画面总时长差，默认0.75s")

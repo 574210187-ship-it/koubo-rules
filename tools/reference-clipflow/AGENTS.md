@@ -4,7 +4,7 @@
 
 ## 用户直接上传“对标视频”
 
-默认一并执行原先功能①②③：镜头/人物和对白时间分析、每段≤10秒切分、C方案001…编号水印（文本alpha 40%、黑描边alpha80%、横屏10px/竖屏7px），自动生成完整原视频SRT。输出 numbered_segments.zip、captions.srt、manifest.json。使用 `clipflow reference --input ... --out ...`；先确认ASR可用，否则明确说明需安装依赖/使用用户已校对SRT。不要伪称已经ASR识别。
+默认一并执行原先功能①②③：镜头/人物和对白时间分析、每段≤10秒切分、C方案001…编号水印（文本alpha 40%、黑描边alpha80%、横屏10px/竖屏7px），自动生成完整原视频SRT。输出 numbered_segments.zip、captions.srt、manifest.json，同时生成 subtitle_samples/ 原帧字幕样张与 subtitle_style_profile.json 待核验模板。使用 `clipflow reference --input ... --out ...`；先确认ASR可用，否则明确说明需安装依赖/使用用户已校对SRT。不要伪称已经ASR识别。
 
 人物身份、机位角度、复杂特效不可能仅靠颜色帧差百分之百判定；需要核对片段和句尾。如果用户要求角色标签，请通过观察/模型判断后写入manifest，不要伪造。
 
@@ -17,6 +17,15 @@
 如果用户尚未声明是否需要可选功能，可以一句话问“需要原声替换、字幕合成吗？默认均不做。”；**不要因此擅自执行这两个功能**。若用户已经明确只拼接或已经给出“拼接+替换+字幕”完整指令，不重复确认。
 
 用户明确要求原声替换，才增加 `--replace-audio --reference ...`；明确要求字幕合成，才增加 `--burn-subtitles --srt ...` 或 `--manifest ...`。两者互相独立，均可同时启用。检查新视频是否已有硬字幕，避免重复压字。
+
+## 对标字幕还原优先规则（高于任何历史固定字模）
+
+- 第一阶段务必查看原视频有无真正的画面字幕（不是单凭音轨或ASR推断）。阅读 `subtitle_samples/subtitle_reference_contact.jpg`，必要时逐张打开同目录**原分辨率截图**；不能确定时追加取样。
+- **有字幕**：尽力逐细节复刻：字形/最相似授权字体、粗细、比例字号、字距、显示区域、横纵偏移、单/双行、边框粗细、描边颜色和透明度、阴影、每一条字幕的常规颜色与特殊词颜色/大小、入场退出时机。特别注意颜色按具体字幕变化。不要套用固定C/B/B、84px、黄绿色高亮关键词。
+- 用视觉结论填写 `subtitle_style_profile.json`，设 `reference_has_subtitles=true`、`visually_reviewed=true`，按样张配置基础值以及 `caption_styles` 的每条例外。必要时做“对标帧/合成帧”两三组并排校对。字体名字不能直接反推出时，记录近似并使用当地合法可用的最接近字体，不得夸大完全相同。
+- **无字幕**：确认后设置 `reference_has_subtitles=false`、`visually_reviewed=true`，允许使用之前的后备方案：特粗黑体或粗宋、普通84px重点94px（以1080竖屏为参照）、白色+黄绿色强调、黑描边、3px字距、中下偏上等。长句缩放防超边。
+- **未经视觉审核**：配置中 `reference_has_subtitles=null`、`visually_reviewed=false` 时，禁用字幕合成并提示先审核，禁止悄悄使用B字模。第一阶段做编号ZIP+SRT不受此限制；第二阶段未要求字幕时也不需要审核。
+- 如新片段自带硬字幕，不允许二次叠字；如用户要求去掉既有硬字幕，应另行确认处理方案，不能擅自裁切或涂抹。
 
 ## 固定设计
 

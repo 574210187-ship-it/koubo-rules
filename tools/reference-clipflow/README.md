@@ -6,7 +6,7 @@
 
 | 阶段 | 输入 | 默认执行 | 输出 |
 |---|---|---|---|
-| **1. 对标视频处理** | 一个参考 MP4 | 视觉镜头变化检测 + 对白句尾辅助切分（每段 ≤10s） + C方案水印（001…，40%白字、80%黑描边） + ASR/SRT | `numbered_segments.zip`、`captions.srt`、`manifest.json` |
+| **1. 对标视频处理** | 一个参考 MP4 | 视觉镜头变化检测 + 对白句尾辅助切分（每段 ≤10s） + C方案水印（001…，40%白字、80%黑描边） + ASR/SRT | `numbered_segments.zip`、`captions.srt`、`manifest.json`、字幕样张及样式配置模板（可一键下载 `subtitle_reference_stylekit.zip`） |
 | **2. 新片段合成** | 多个新视频MP4 | 排序 → **原样完整拼接**（不变速、不额外裁切） → 模拟「去灰通透」调色 | 合成MP4、验收报告JSON |
 
 两个**明确可选项**：**原视频声音替换** `--replace-audio` 与 **字幕压制** `--burn-subtitles`。未要求时两者**都不做**；不会自作主张叠字或换音轨。
@@ -48,6 +48,9 @@ project/
   captions.srt                 # 对标完整视频的可导入剪映字幕（UTF-8 BOM）
   numbered_segments.zip       # 001_镜头.mp4 ... NNN_镜头.mp4
   manifest.json               # 参考视频起止秒、序号、音轨/分辨率、方案C参数
+  subtitle_style_profile.json # 待视觉审核的对标样式配置（初始不作假定）
+  subtitle_samples/           # 对标原帧截图与总览，供分析字体/颜色/位置
+  subtitle_reference_stylekit.zip # SRT+manifest+样张+配置模板，可转交其他窗口
   segments/                   # 单段MP4
     001_镜头.mp4
     002_镜头.mp4
@@ -79,15 +82,42 @@ clipflow assemble --clips-dir "new_clips" --reference "对标原视频.mp4" --ou
 clipflow assemble --clips-dir "new_clips" --order-file order.txt --out "new_final.mp4"
 ```
 
+## 字幕规则：对标优先，而不是固定 C/B/B 或84px
+
+- **对标视频有可见字幕**：先查看第一阶段 `subtitle_samples/` 内的原分辨率截图及总览。按实际对标逐项核对 **字体字形或可用的最接近字体、粗细、尺寸比例、字距、横纵位置、单行/多行、描边、阴影、常规字色、逐词/逐句强调色、显示时机**。不能仅凭用户场景或此前视频套用 C/B/B、84/94px、固定黄绿色关键词。
+- **对标字幕分段颜色不同**：在 `subtitle_style_profile.json` 的 `caption_styles` 中写每条字幕专用 `runs`（每个词组颜色/字号），或覆盖该条 `highlight_terms`，而不是默认把“律师/合同”等词一律变色。允许字幕全白、全黄、蓝字、渐变近似色等具体对标方案。
+- **对标没有字幕**：经查看截图确认后，将 JSON 内 `reference_has_subtitles=false`、`visually_reviewed=true`；此时才使用后备样式（此前约84/94px、白字和黄绿色强调、黑描边、少量字间距，按画幅自适应）。
+- **有字幕但字体名称无法确定**：优先匹配可见字形；选择合法安装的最相近字体，记录“近似”，不要声称100%识别出原始字体；涉及商业字体需用户自行取得合法授权。
+- **样张未复核**：`reference_has_subtitles` 初始为 `null`；执行字幕合成会主动停止，防止悄悄退回固定B字模。新ChatGPT账号应先完成该文件的视觉核验。只拼接不加字幕时不受影响。
+- **时间轴和内容独立于外观**：依然用 SRT/原声时间对齐；对标硬字幕已在新片段画面里时优先不重复叠加；遇到不确定的样式先给两三帧对照样张。
+
+### 对标样式的工作方法
+
+第一阶段会自动生成：
+
+```text
+project/subtitle_samples/subtitle_reference_contact.jpg
+project/subtitle_samples/cue_001_...jpg  # 原分辨率帧
+project/subtitle_style_profile.json      # 初始状态 pending，须视觉确认
+```
+
+视觉确认后填入 JSON（详见 `examples/subtitle_style_profile_example.json`），包括 `source_canvas_width/height`、`font_family`、`font_size_px`、`letter_spacing_px`、`position_x_ratio/y_ratio`、描边和颜色。`caption_styles` 可逐条重写样式；`runs` 必须拼起来与该条 SRT 原文完全相同，保证颜色位置不乱。
+
+**该版本并没有声称可以用纯FFmpeg自动反查字体名称**：ChatGPT需要读取样张并判断，程序将经审阅的样式按参数应用。尺寸按对标分辨率比例缩放，并在长句超边时自动收缩。ASS支持静态字体、色块、描边、阴影和淡入淡出；特殊三维字体、复杂关键帧动画和剪映私有效果需要另外处理。
+
+### 第二阶段字幕合成示例
+
 需要**原声替换**时才追加 `--replace-audio`；需要**SRT文字合成**时才追加 `--burn-subtitles`。可同时指定两个选项：
 
 ```bash
 clipflow assemble --clips-dir new_clips --out new_final.mp4 \
   --reference "对标原视频.mp4" --manifest project/manifest.json \
-  --replace-audio --burn-subtitles --subtitle-style B
+  --replace-audio --burn-subtitles
 ```
 
-原声/新视频总时长若相差过大，程序会报错，防止无意裁掉画面。字幕合成会根据 `manifest.json` 将对标SRT的时间轴转换到新片段累计时间轴；如果字幕已经烧录在新片段里，可以使用 `--skip-existing-subs 2 5` 跳过指定片段的二次叠加，**不会尝试抹除已有硬字幕**。字幕外观B约为粗宋体、白字/黄绿色重点词、黑描边和3px字距；C约为特粗黑体。未确认样式时应在ChatGPT中预览并告知用户：对标字体很难百分之百反推。
+当 `--manifest project/manifest.json` 存在时，程序自动读取同目录已经核验的 `subtitle_style_profile.json`；也可以通过 `--subtitle-profile path/to/style.json` 显式指定。**样式选择顺序：经审核的对标配置 > 对标明确无字幕时的后备方案**。当完全没有对标视频但明确要求叠加字幕时，可按后备方案处理。
+
+原声/新视频总时长若相差过大，程序会报错，防止无意裁掉画面。字幕合成会根据 `manifest.json` 将对标SRT的时间轴转换到新片段累计时间轴；如果字幕已经烧录在新片段里，可以使用 `--skip-existing-subs 2 5` 跳过指定片段的二次叠加，**不会尝试抹除已有硬字幕**。**只有确认对标无字幕时**才使用此前的B或C后备字模；不再固定指定C/B/B或84px。视觉确认、关键词颜色和字体可用性需要如实记录。
 
 如果用户明确取消去灰通透，可加 `--no-grade`。没有该参数，就**默认去灰通透**。`assemble` 只输出最终MP4，不默认生成1080P/60fps新版本。
 
