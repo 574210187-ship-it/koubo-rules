@@ -23,9 +23,8 @@ from typing import Iterable
 
 from .subtitle_style import (create_reference_samples, create_style_template,
                              read_style_profile, convert_matched_ass)
-from .asr import TimedText, recognize, estimate_character_timing
-from .transcript import (assign_words_to_segments, write_segment_document,
-                         write_whole_transcript)
+from .visual_ocr import VisualCue, subtitles_from_video, check_ocr
+from .transcript import assign_cues_to_segments, write_segment_document
 
 
 def require_binary(name: str) -> None:
@@ -124,32 +123,6 @@ def save_srt(captions: Iterable[Caption], path: Path) -> None:
     path.write_text("\n".join(
         f"{i}\n{clock(c.start)} --> {clock(c.end)}\n{c.text}\n"
         for i, c in enumerate(captions, 1)), encoding="utf-8-sig")
-
-
-def chunks_by_char(text: str, start: float, end: float, max_chars: int = 16) -> list[Caption]:
-    """Fallback for ASR spans without word timing; boundaries are approximate."""
-    parts = re.findall(r"[^，。！？；;!?]+[，。！？；;!?]?", text.strip()) or [text]
-    tiny: list[str] = []
-    for part in parts:
-        while len(part) > max_chars:
-            tiny.append(part[:max_chars]); part = part[max_chars:]
-        if part:
-            tiny.append(part)
-    weights = [max(1, len(p.strip())) for p in tiny]
-    total = sum(weights)
-    pos = start
-    out = []
-    for n, (piece, weight) in enumerate(zip(tiny, weights)):
-        nxt = end if n == len(tiny)-1 else pos + (end-start)*weight/total
-        out.append(Caption(pos, nxt, piece.strip()))
-        pos = nxt
-    return out
-
-
-def asr_captions(video: Path, model: str, device: str, language: str) -> list[Caption]:
-    """Backwards-compatible entry point; audio recognition uses the ASR module."""
-    recognition = recognize(video, model=model, device=device, language=language)
-    return [Caption(x.start, x.end, x.text) for x in recognition.captions]
 
 
 def detect_scenes(path: Path, duration: float, *, step: float=0.23,
@@ -269,6 +242,7 @@ def export_reference_segment(source: Path, target: Path,
 
 
 def make_reference(args) -> None:
+    """Export numbered MP4s and one MD with text from VISUAL subtitles only."""
     source = args.input.resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -277,86 +251,98 @@ def make_reference(args) -> None:
     if out.exists() and any(out.iterdir()) and not args.overwrite:
         raise FileExistsError(f"输出目录非空: {out}。换目录或指定 --overwrite")
     out.mkdir(parents=True,exist_ok=True)
+    if args.overwrite:
+        for name in ('captions.srt','segments_transcript.md','numbered_segments.zip',
+                     'subtitle_reference_stylekit.zip'):
+            (out/name).unlink(missing_ok=True)
     if args.srt:
-        captions = load_srt(args.srt)
-        # SRT contains cue timestamps, not actual word timestamps.
-        words = estimate_character_timing([TimedText(c.start,c.end,c.text) for c in captions])
-        origin = "supplied_srt"
-        alignment = "srt_estimated"
-        recognized_language = None
+        captions=load_srt(args.srt)
+        origin='supplied_srt'
+        audit={'mode':'supplied_srt','speech_audio_used':False,
+               'status':'provided_captions_not_machine_ocr'}
     else:
-        print("[ASR] 正在从原视频音轨识别中文（无需画面自带字幕）...",flush=True)
-        recognition = recognize(source,args.model,args.device,args.language,backend=args.asr_backend)
-        captions = [Caption(x.start,x.end,x.text) for x in recognition.captions]
-        words = recognition.words
-        origin = "cloud_whisper_asr" if recognition.alignment.startswith("cloud_") else "faster_whisper_asr"
-        alignment = recognition.alignment
-        recognized_language = recognition.language
-    captions = [Caption(max(0,c.start),min(info["duration"],c.end),c.text)
-                for c in captions if c.start < info["duration"] and c.end > 0]
-    if not captions:
-        raise RuntimeError("当前视频时间范围内无有效字幕")
-    save_srt(captions,out/"captions.srt")
-    # These are visual samples, NOT an automatic font recognition claim.
-    reference_samples=create_reference_samples(source,captions,out/"subtitle_samples",
-                                                info["width"],info["height"])
-    profile_template=out/"subtitle_style_profile.json"
-    create_style_template(profile_template,info["width"],info["height"])
-    print(f"[subtitle style] 已生成对标截图 {reference_samples}; 样式待人工/视觉模型核实: {profile_template}",flush=True)
-    shots = detect_scenes(source,info["duration"],step=args.scene_step)
-    cuts = choose_cuts(info["duration"],shots,captions,maximum=args.max_seconds)
-    font = str(args.font_file) if args.font_file else ffmpeg_font()
-    clip_dir = out/"segments"
+        print('[OCR] 只从原视频的可见画面字幕识别文字；完全不读取音轨...',flush=True)
+        if not (0 <= args.ocr_region[0] < args.ocr_region[2] <= 1 and
+                0 <= args.ocr_region[1] < args.ocr_region[3] <= 1):
+            raise ValueError('--ocr-region 应为0到1之间的四个数字 x0 y0 x1 y1')
+        cues,audit = subtitles_from_video(
+            source,info['duration'],step=args.ocr_interval,
+            language=args.ocr_language,region=tuple(args.ocr_region))
+        captions=[Caption(c.start,c.end,c.text) for c in cues]
+        origin='visual_ocr' if captions else 'none_visible'
+    captions=[Caption(max(0,c.start),min(info['duration'],c.end),c.text)
+              for c in captions if c.start < info['duration'] and c.end > 0]
+    if captions:
+        save_srt(captions,out/'captions.srt')
+        print(f'[OCR] 发现 {len(captions)} 条可信画面字幕（OCR需人工核验），已生成画面文字SRT',flush=True)
+    else:
+        print('[OCR] 未发现可信的可识别画面字幕：不会生成伪SRT，逐段MD仍然生成',flush=True)
+    reference_samples=create_reference_samples(source,captions,out/'subtitle_samples',
+                                                info['width'],info['height'],
+                                                duration=info['duration'])
+    profile_template=out/'subtitle_style_profile.json'
+    create_style_template(profile_template,info['width'],info['height'])
+    shots=detect_scenes(source,info['duration'],step=args.scene_step)
+    cuts=choose_cuts(info['duration'],shots,captions,maximum=args.max_seconds)
+    font=str(args.font_file) if args.font_file else ffmpeg_font()
+    clip_dir=out/'segments'
     clip_dir.mkdir(exist_ok=True)
+    if args.overwrite:
+        for stale in clip_dir.glob('*.mp4'):
+            stale.unlink()
     entries=[]
     for i,(start,end) in enumerate(zip(cuts,cuts[1:]),1):
-        filename=f"{i:03d}_镜头.mp4"
+        filename=f'{i:03d}_镜头.mp4'
         target=clip_dir/filename
         export_reference_segment(source,target,start,end,info,i,font,args.crf,args.preset)
         actual=media_info(target)
-        if actual["duration"] > 10.02:
+        if actual['duration'] > 10.02:
             raise RuntimeError(f"片段 {filename} 实际超过10秒: {actual['duration']:.3f}")
-        entries.append({"index":i,"file":filename,"start":start,"end":end,
-                        "duration":round(end-start,3),"encoded_duration":round(actual["duration"],3),
-                        "scene_label":f"镜头{i:03d}","role":"待确认"})
-        print(f"[reference] {filename} {start:.2f}–{end:.2f}s",flush=True)
-    transcript_parts = assign_words_to_segments(entries, words)
-    for entry, script in zip(entries, transcript_parts):
-        entry["transcript"] = script
-    transcript_md = out / "segments_transcript.md"
-    write_segment_document(transcript_md, source.name, info["duration"],
-                           entries, transcript_parts, origin, alignment,
-                           args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.0","reference_filename":source.name,
-              "reference_duration":round(info["duration"],3),
-              "reference_sha256":sha256(source),"original_media":{
-                  "width":info["width"],"height":info["height"],"fps":info["fps"]},
-              "caption_source":origin,
-              "transcript_document":"segments_transcript.md",
-              "transcript_alignment":alignment,
-              "asr_model":args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None,
-              "asr_language":recognized_language,
-              "subtitle_style_status":"pending_visual_review",
-              "subtitle_style_profile":"subtitle_style_profile.json",
-              "subtitle_sample_contact":"subtitle_samples/subtitle_reference_contact.jpg",
-              "watermark":{
-                  "scheme":"C","text_alpha":0.4,"stroke_alpha":0.8,
-                  "landscape_stroke_px_at_1920w":10,"portrait_stroke_px_at_1080w":7},
-              "segments":entries,"scene_detected_at":shots,
-              "notes":"场景边界是自动候选；人物和机位标签需要人工核对。"}
-    (out/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
-    with zipfile.ZipFile(out/"numbered_segments.zip","w",zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted(clip_dir.glob("*.mp4")):
-            archive.write(file,arcname=file.name)
-    # Easy cross-window transfer: includes reference samples, timing and style status,
-    # never the full original video or private audio.
-    with zipfile.ZipFile(out/"subtitle_reference_stylekit.zip","w",zipfile.ZIP_DEFLATED) as archive:
-        for name in ("captions.srt","segments_transcript.md","manifest.json","subtitle_style_profile.json"):
-            archive.write(out/name,arcname=name)
-        for sample in sorted((out/"subtitle_samples").glob("*")):
+        entries.append({'index':i,'file':filename,'start':start,'end':end,
+                        'duration':round(end-start,3),
+                        'encoded_duration':round(actual['duration'],3),
+                        'scene_label':f'镜头{i:03d}','role':'待确认'})
+        print(f'[reference] {filename} {start:.2f}–{end:.2f}s',flush=True)
+    transcript_parts=assign_cues_to_segments(entries,captions)
+    for entry,script in zip(entries,transcript_parts):
+        entry['transcript']=script
+        entry['transcript_status']='visible_subtitle_ocr_review' if script else 'no_visible_subtitles'
+    transcript_md=out/'segments_transcript.md'
+    write_segment_document(transcript_md,source.name,info['duration'],
+                           entries,transcript_parts,origin)
+    manifest={
+        'version':'0.5.0-visual-only',
+        'reference_filename':source.name,
+        'reference_duration':round(info['duration'],3),
+        'reference_sha256':sha256(source),
+        'original_media':{'width':info['width'],'height':info['height'],'fps':info['fps']},
+        'caption_source':origin,
+        'caption_status':audit['status'],
+        'ocr_audit':audit,
+        'transcript_document':'segments_transcript.md',
+        'subtitle_style_status':'pending_visual_review',
+        'subtitle_style_profile':'subtitle_style_profile.json',
+        'subtitle_sample_contact':'subtitle_samples/subtitle_reference_contact.jpg',
+        'watermark':{'scheme':'C','text_alpha':0.4,'stroke_alpha':0.8,
+                     'landscape_stroke_px_at_1920w':10,
+                     'portrait_stroke_px_at_1080w':7},
+        'segments':entries, 'scene_detected_at':shots,
+        'notes':'仅识别原视频可见字幕，不能从无字幕的画面恢复口播；自动镜头边界和OCR均待复核。'
+    }
+    (out/'manifest.json').write_text(
+        json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+    with zipfile.ZipFile(out/'numbered_segments.zip','w',zipfile.ZIP_DEFLATED) as archive:
+        for entry in entries:
+            archive.write(clip_dir/entry['file'],arcname=entry['file'])
+    with zipfile.ZipFile(out/'subtitle_reference_stylekit.zip','w',zipfile.ZIP_DEFLATED) as archive:
+        for name in ('captions.srt','segments_transcript.md','manifest.json','subtitle_style_profile.json'):
+            f=out/name
+            if f.is_file(): archive.write(f,arcname=name)
+        for sample in sorted((out/'subtitle_samples').glob('*')):
             if sample.is_file():
-                archive.write(sample,arcname="subtitle_samples/"+sample.name)
-    print(f"完成：{len(entries)}段；视频ZIP {out/'numbered_segments.zip'}；SRT {out/'captions.srt'}；逐段台词 {transcript_md}；字幕样式参考包 {out/'subtitle_reference_stylekit.zip'}")
+                archive.write(sample,arcname='subtitle_samples/'+sample.name)
+    print(f"完成：{len(entries)}段；ZIP {out/'numbered_segments.zip'}；分段台词MD {transcript_md}；"
+          f"{'可见画面字幕SRT' if captions else '无可信字幕，不生成SRT'}",flush=True)
 
 
 def resolve_order(clips: list[Path], order_file: Path|None,
@@ -641,67 +627,48 @@ def assemble(args)->None:
     print(f"完成：{target} ({final['duration']:.2f}s)；报告：{report_path}")
 
 
-def transcribe_only(args) -> None:
-    """Independent local audio-to-text without scene splitting."""
-    source = args.input.resolve()
-    if not source.is_file():
-        raise FileNotFoundError(source)
-    out = args.out.resolve()
-    if out.exists() and any(out.iterdir()) and not args.overwrite:
-        raise FileExistsError(f"输出目录非空: {out}。换目录或指定 --overwrite")
-    out.mkdir(parents=True, exist_ok=True)
-    recognized = recognize(source, args.model, args.device, args.language,backend=args.asr_backend)
-    save_srt([Caption(s.start,s.end,s.text) for s in recognized.captions],out/"captions.srt")
-    write_whole_transcript(out/"transcript.md",source.name,recognized.captions,
-                           args.model,recognized.language,recognized.alignment)
-    print(f"完成语音识别：{out/'captions.srt'}；{out/'transcript.md'}")
-
-
 def doctor() -> None:
-    """Never downloads packages or weights; read-only local capability check."""
-    import importlib.util
+    """Read-only check of visual OCR, no ASR installation or model download."""
     from . import __version__
-    present = importlib.util.find_spec("faster_whisper") is not None
+    ocr_ok=True
+    try:
+        check_ocr('chi_sim+eng')
+    except RuntimeError as exc:
+        ocr_ok=False
+        detail=str(exc)
+    else:
+        detail='Tesseract中文OCR就绪；不需要Whisper或音频模型'
     print(json.dumps({
-        "clipflow_version": __version__,
-        "ffmpeg_installed": shutil.which("ffmpeg") is not None,
-        "ffprobe_installed": shutil.which("ffprobe") is not None,
-        "asr_backend": "cloud-if-configured-else-local-faster-whisper",
-        "cloud_endpoint_configured": bool(os.getenv("CLIPFLOW_ASR_URL")),
-        "cloud_api_key_configured": bool(os.getenv("CLIPFLOW_ASR_API_KEY")),
-        "asr_dependency_installed": present,
-        "asr_model_ready": "not_checked",
-        "asr_install_command": "python -m pip install -e '.[asr]'",
-        "model_note": "云端URL与密钥都已配置时不需要在客户端安装模型；否则本地首次下载模型需联网。",
-    }, ensure_ascii=False, indent=2))
+        'clipflow_version':__version__,
+        'ffmpeg_installed':shutil.which('ffmpeg') is not None,
+        'ffprobe_installed':shutil.which('ffprobe') is not None,
+        'visual_ocr_available':ocr_ok,
+        'ocr_note':detail,
+        'speech_to_text_enabled':False,
+        'audio_asr_dependency_required':False,
+    },ensure_ascii=False,indent=2))
 
 
 def parser()->argparse.ArgumentParser:
-    p=argparse.ArgumentParser(prog="clipflow",description="对标视频拆分、水印C、ASR/SRT、逐段台词；新片段拼接与去灰通透，不默认60帧。")
-    sub=p.add_subparsers(dest="action",required=True)
-    ref=sub.add_parser("reference",help="阶段一：视频 -> 编号片段ZIP + 原声识别SRT + 逐段台词MD")
-    ref.add_argument("--input",type=Path,required=True)
-    ref.add_argument("--out",type=Path,required=True)
-    ref.add_argument("--srt",type=Path,help="用已有SRT；省略则运行本地faster-whisper ASR")
-    ref.add_argument("--asr-backend",choices=["auto","cloud","local"],default="auto",help="配置云端地址和密钥时默认使用云端；否则本地")
-    ref.add_argument("--model",default="small",help="faster-whisper 模型，默认 small")
-    ref.add_argument("--device",default="cpu",help="cpu 或 cuda")
-    ref.add_argument("--language",default="zh")
-    ref.add_argument("--max-seconds",type=float,default=9.8)
-    ref.add_argument("--scene-step",type=float,default=.23)
-    ref.add_argument("--font-file",type=Path)
-    ref.add_argument("--crf",type=int,default=19)
-    ref.add_argument("--preset",default="veryfast")
-    ref.add_argument("--overwrite",action="store_true")
-    tr=sub.add_parser("transcribe",help="独立音频识别：视频/音频 -> SRT + 全文MD（无需画面自带字幕）")
-    tr.add_argument("--input",type=Path,required=True,help="含人声的视频或音频文件")
-    tr.add_argument("--out",type=Path,required=True,help="输出目录")
-    tr.add_argument("--asr-backend",choices=["auto","cloud","local"],default="auto",help="配置云端地址和密钥时默认使用云端；否则本地")
-    tr.add_argument("--model",default="small",help="Whisper模型名或已下载的本地模型目录")
-    tr.add_argument("--device",default="cpu",help="cpu 或 cuda")
-    tr.add_argument("--language",default="zh",help="中文zh；自动识别可用auto")
-    tr.add_argument("--overwrite",action="store_true")
-    sub.add_parser("doctor",help="检查FFmpeg与本地ASR依赖状态，不下载安装")
+    p=argparse.ArgumentParser(prog='clipflow',
+         description='对标视频镜头拆分＋C水印＋画面字幕OCR＋每段台词MD；新片段拼接调色；不执行ASR。')
+    sub=p.add_subparsers(dest='action',required=True)
+    ref=sub.add_parser('reference',help='对标原视频 → 编号视频ZIP + 每段台词MD；有可信画面字幕时生成SRT')
+    ref.add_argument('--input',type=Path,required=True)
+    ref.add_argument('--out',type=Path,required=True)
+    ref.add_argument('--srt',type=Path,help='可选：使用已有人工校对的画面字幕SRT，不使用音频识别')
+    ref.add_argument('--ocr-language',default='chi_sim+eng',help='Tesseract语言代码')
+    ref.add_argument('--ocr-interval',type=float,default=.55,help='每隔多少秒抽取原始画面作OCR，默认0.55秒')
+    ref.add_argument('--ocr-region',type=float,nargs=4,default=[.06,.49,.94,.94],
+                     metavar=('X0','Y0','X1','Y1'),
+                     help='画面字幕区域的宽高相对坐标，默认中央偏下；范围均为0..1')
+    ref.add_argument('--max-seconds',type=float,default=9.8)
+    ref.add_argument('--scene-step',type=float,default=.23)
+    ref.add_argument('--font-file',type=Path)
+    ref.add_argument('--crf',type=int,default=19)
+    ref.add_argument('--preset',default='veryfast')
+    ref.add_argument('--overwrite',action='store_true')
+    sub.add_parser('doctor',help='检查FFmpeg和中文画面字幕OCR，不下载任何语音模型')
     ass=sub.add_parser("assemble",help="阶段二：新片段自动排顺序拼接＋去灰通透；原声/字幕仅按显式选项")
     ass.add_argument("--clips-dir",type=Path)
     ass.add_argument("--clips",type=Path,nargs="+")
@@ -732,7 +699,6 @@ def main(argv:list[str]|None=None)->int:
     try:
         if args.action=="reference":make_reference(args)
         elif args.action=="assemble":assemble(args)
-        elif args.action=="transcribe":transcribe_only(args)
         elif args.action=="doctor":doctor()
     except (OSError,ValueError,RuntimeError,AssertionError) as exc:
         print(f"错误：{exc}",file=sys.stderr)

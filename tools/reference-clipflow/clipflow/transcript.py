@@ -1,81 +1,77 @@
-"""Generate one grounded, human-readable script/timing report per source video."""
+"""One paragraph per numbered clip from *visible* subtitle OCR only.
+
+Never infer spoken content from a moving mouth or a filename.
+"""
 from __future__ import annotations
 
-from bisect import bisect_right
 from pathlib import Path
 from typing import Iterable
-
-from .asr import TimedText
 
 
 def human_time(seconds: float) -> str:
     millis = max(0, round(seconds * 1000))
     minutes, rest = divmod(millis, 60_000)
     sec, ms = divmod(rest, 1000)
-    return f"{minutes:02d}:{sec:02d}.{ms:03d}"
+    if not ms:
+        return f'{minutes:02d}:{sec:02d}'
+    return f'{minutes:02d}:{sec:02d}.{ms:03d}'
 
 
-def assign_words_to_segments(entries: list[dict], words: Iterable[TimedText]) -> list[str]:
-    """Assign each recognized token exactly once by its timestamp midpoint.
+def assign_cues_to_segments(entries: list[dict], captions: Iterable) -> list[str]:
+    """Return visible subtitle text for each clip, deduplicated within it.
 
-    Token timing is speech aligned from Whisper when available, or clearly
-    documented as estimated when words were reconstructed from an SRT.
+    A caption straddling a shot boundary is shown in both clips, because the
+    words are visibly present in both. There is *no* fabricated speech timing.
     """
-    if not entries:
-        return []
-    boundaries = [float(x["start"]) for x in entries] + [float(entries[-1]["end"])]
-    buffers: list[list[str]] = [[] for _ in entries]
-    for word in words:
-        midpoint = (word.start+word.end)/2
-        if not word.text or midpoint < boundaries[0]-.1 or midpoint > boundaries[-1]+.1:
-            continue
-        idx = max(0,min(len(entries)-1,bisect_right(boundaries,midpoint)-1))
-        buffers[idx].append(word.text)
-    return ["".join(x).strip() for x in buffers]
+    captions = list(captions)
+    out: list[str] = []
+    for entry in entries:
+        start,end=float(entry['start']),float(entry['end'])
+        lines = []
+        for cue in captions:
+            overlap = max(0, min(float(cue.end),end) - max(float(cue.start),start))
+            # OCR sample times are approximate (+/- half the scan interval).
+            # Do not leak a preceding caption into the next clip for a tiny
+            # overlap introduced by sampling around a hard scene cut.
+            min_overlap = min(0.28, max(0.12, 0.20*(float(cue.end)-float(cue.start))))
+            if overlap < min_overlap:
+                continue
+            text = str(cue.text).strip()
+            if text and (not lines or text != lines[-1]):
+                lines.append(text)
+        out.append(' '.join(lines).strip())
+    return out
 
 
 def write_segment_document(path: Path, reference_name: str, duration: float,
                            entries: list[dict], transcript_parts: list[str],
-                           source: str, alignment: str, model: str | None = None) -> None:
+                           source: str) -> None:
+    """Always write MD, even when video has no visible captions."""
     if len(entries) != len(transcript_parts):
-        raise ValueError("片段数量与台词列表不一致")
-    source_label = ("本地 faster-whisper ASR（原视频音频）" if source == "faster_whisper_asr"
-                    else "用户提供的 SRT（非本次自动语音识别）")
-    alignment_label = ("Whisper词级时间戳" if alignment == "word_timestamps"
-                       else "部分词级时间由ASR片段估算" if alignment == "mixed_estimated"
-                       else "按SRT字幕时间估算字级位置")
+        raise ValueError('视频片段数量与分段台词不一致')
+    labels = {
+        'visual_ocr':'原视频画面中的可见字幕（机器OCR识别，待核对）',
+        'supplied_srt':'用户提供的字幕文件（非音频识别）',
+        'none_visible':'原视频画面未发现可信的可识别字幕',
+    }
     lines = [
-        "# 对标视频｜逐片段时间与台词",
-        "",
-        f"- 原视频：`{reference_name.replace('`','')}`",
-        f"- 总时长：{human_time(duration)}（{duration:.3f} 秒）",
-        f"- 片段数量：{len(entries)}",
-        f"- 文字来源：{source_label}" + (f"；模型：`{model}`" if model and source=="faster_whisper_asr" else ""),
-        f"- 分配依据：{alignment_label}；时间均以原视频开头为 00:00.000",
-        "- 校对提示：ASR可能识别错字；建议根据原声复核人名、法律术语、方言与句尾。",
-        "",
-        "## 按镜头顺序逐段台词",
-        "",
+        '# ClipFlow｜按视频片段整理的台词', '',
+        f'- 原视频：`{reference_name.replace("`", "")}`',
+        f'- 原视频总时长：{human_time(duration)}',
+        f'- 切分视频：{len(entries)} 段',
+        f'- 文案来源：{labels.get(source, source)}',
+        '- 说明：每个视频段只标一次起止时间；不显示逐句时间轴。',
+        '- 重要：只识别画面上可见文字，不读取音轨。无画面字幕的口播台词无法据此还原。',
+        '',
     ]
-    for entry,script in zip(entries,transcript_parts):
-        idx=int(entry["index"])
-        start=float(entry["start"]);end=float(entry["end"])
+    for entry,text in zip(entries,transcript_parts):
+        i=int(entry['index'])
+        start,end=float(entry['start']),float(entry['end'])
         lines.extend([
-            f"### {idx:03d}｜{human_time(start)} — {human_time(end)}｜{end-start:.3f} 秒",
-            f"- 文件：`{entry['file']}`",
-            f"- 台词：{script if script else '（本段未识别到讲话）'}",
-            "",
+            f'## 第{i:03d}段｜{human_time(start)}—{human_time(end)}',
+            f'- 视频：`{entry["file"]}`',
+            '',
+            f'**台词：** {text if text else "（本段未检测到可识别画面字幕；口播内容未知）"}',
+            '',
         ])
-    path.write_text("\n".join(lines),encoding="utf-8")
-
-
-def write_whole_transcript(path: Path, input_name: str, captions: list[TimedText],
-                          model: str, language: str, alignment: str) -> None:
-    lines = ["# 视频／音频语音识别稿", "", f"- 来源：`{input_name.replace('`','')}`",
-             f"- ASR模型：`{model}`",f"- 语言：`{language}`",
-             f"- 时间戳：`{alignment}`", "- 提醒：机器识别内容需人工校对。", "",
-             "## 原声识别结果", ""]
-    for cue in captions:
-        lines.append(f"**{human_time(cue.start)} — {human_time(cue.end)}**  {cue.text}")
-        lines.append("")
-    path.write_text("\n".join(lines),encoding="utf-8")
+    path.write_text('\n'.join(lines).rstrip()+'\n', encoding='utf-8')

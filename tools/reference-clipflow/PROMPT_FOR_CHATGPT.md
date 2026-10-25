@@ -1,13 +1,3 @@
-# Reference ClipFlow｜两句启动词
+# 其他聊天窗口启动词｜Reference ClipFlow v0.5.0（纯画面 OCR）
 
-所有处理规则、参数、两阶段输出和可选项，以本项目 `AGENTS.md` 与 `README.md` 为准。提示词只负责启动，不重复写规则。
-
-## 当前ChatGPT账号（优先复用）
-
-> 执行 ClipFlow：优先使用本地最新版，缺失再从已连接的 GitHub 获取；按项目规则自动处理我上传的视频。
-
-## 其他ChatGPT账号（公开仓库）
-
-> 加载 https://github.com/574210187-ship-it/koubo-rules/tree/main/tools/reference-clipflow ，读取 AGENTS.md；优先复用已有安装，缺失再安装，按项目规则处理我上传的视频。
-
-首次载入成功后，后续只说“执行 ClipFlow”，并上传对标视频或新片段即可。两项可选功能未明确要求时均不执行；详细规则见 `AGENTS.md`。
+执行 Reference ClipFlow：优先使用本地已安装程序；如缺失或旧版本，再从已连接 GitHub 的 `574210187-ship-it/koubo-rules/tools/reference-clipflow` 获取最新版本，遵守 README.md 与 AGENTS.md。上传对标视频默认按视觉镜头切分为 ≤10 秒，C 方案水印，OCR 识别**原视频画面可见字幕**，交付 `numbered_segments.zip` 与**每段对应一个时间范围、一整段台词的 `segments_transcript.md`**（以及 manifest；有可见字幕才生成 SRT）。没有字幕要据实写未知，绝不使用音频 ASR。上传新视频片段默认按序完整拼接和去灰通透调色；原声替换及字幕合成仅明确要求时做，字幕样式以对标为准；不默认60fps。不要重复安装已有程序。

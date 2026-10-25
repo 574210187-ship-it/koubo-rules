@@ -15,7 +15,8 @@ from typing import Iterable
 
 def create_reference_samples(video: Path, captions: Iterable, output_dir: Path,
                              canvas_width: int, canvas_height: int,
-                             max_samples: int = 12) -> Path:
+                             max_samples: int = 12,
+                             duration: float | None = None) -> Path:
     """Export original-resolution subtitle samples and a contact sheet.
 
     The samples come from the original reference, never a watermarked segment.
@@ -30,7 +31,14 @@ def create_reference_samples(video: Path, captions: Iterable, output_dir: Path,
         raise RuntimeError(f"无法读取对标视频以制作字幕样张: {video}")
     cues = list(captions)
     if not cues:
-        raise ValueError("缺少字幕时间，无法制作参考样张")
+        # No visible subtitles: still export original-frame screenshots so the
+        # operator can confirm the absence instead of inferring from audio.
+        if duration is None or duration <= 0:
+            raise ValueError('无字幕时制作参考帧需要原视频时长')
+        from types import SimpleNamespace
+        n = min(max_samples, max(3, int(duration / 2.3)))
+        cues = [SimpleNamespace(start=duration*i/n, end=duration*(i+1)/n)
+                for i in range(n)]
     indexes = []
     if len(cues) <= max_samples:
         indexes = list(range(len(cues)))
