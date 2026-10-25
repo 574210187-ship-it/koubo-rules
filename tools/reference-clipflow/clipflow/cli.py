@@ -23,6 +23,9 @@ from typing import Iterable
 
 from .subtitle_style import (create_reference_samples, create_style_template,
                              read_style_profile, convert_matched_ass)
+from .asr import TimedText, recognize, estimate_character_timing
+from .transcript import (assign_words_to_segments, write_segment_document,
+                         write_whole_transcript)
 
 
 def require_binary(name: str) -> None:
@@ -144,38 +147,9 @@ def chunks_by_char(text: str, start: float, end: float, max_chars: int = 16) -> 
 
 
 def asr_captions(video: Path, model: str, device: str, language: str) -> list[Caption]:
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        raise RuntimeError("ASR需要额外安装：pip install '.[asr]'。也可用 --srt 提供已校对字幕。") from exc
-    wm = WhisperModel(model, device=device, compute_type="int8")
-    segments, _ = wm.transcribe(str(video), language=language,
-                                vad_filter=True, word_timestamps=True,
-                                condition_on_previous_text=False)
-    spans: list[Caption] = []
-    for seg in segments:
-        words = getattr(seg, "words", None) or []
-        if words:
-            bucket: list[str] = []
-            first = last = None
-            for w in words:
-                if first is None:
-                    first = float(w.start)
-                last = float(w.end)
-                bucket.append(w.word)
-                msg = "".join(bucket).strip()
-                if (len(msg) >= 16 or (last-first) >= 3.5 or
-                        (re.search(r"[。！？!?]$", msg) is not None)):
-                    spans.append(Caption(first, max(last, first+.05), msg))
-                    first = last = None
-                    bucket = []
-            if bucket:
-                spans.append(Caption(float(first), float(last), "".join(bucket).strip()))
-        elif seg.text.strip():
-            spans.extend(chunks_by_char(seg.text, float(seg.start), float(seg.end)))
-    if not spans:
-        raise RuntimeError("ASR未识别到有效语音。请检查音轨或提供 --srt。")
-    return [c for c in spans if c.text and c.end > c.start]
+    """Backwards-compatible entry point; audio recognition uses the ASR module."""
+    recognition = recognize(video, model=model, device=device, language=language)
+    return [Caption(x.start, x.end, x.text) for x in recognition.captions]
 
 
 def detect_scenes(path: Path, duration: float, *, step: float=0.23,
@@ -305,11 +279,19 @@ def make_reference(args) -> None:
     out.mkdir(parents=True,exist_ok=True)
     if args.srt:
         captions = load_srt(args.srt)
+        # SRT contains cue timestamps, not actual word timestamps.
+        words = estimate_character_timing([TimedText(c.start,c.end,c.text) for c in captions])
         origin = "supplied_srt"
+        alignment = "srt_estimated"
+        recognized_language = None
     else:
-        print("[ASR] 正在识别原视频音频（首次使用需下载模型）...",flush=True)
-        captions = asr_captions(source,args.model,args.device,args.language)
+        print("[ASR] 正在从原视频音轨识别中文（无需画面自带字幕）...",flush=True)
+        recognition = recognize(source,args.model,args.device,args.language)
+        captions = [Caption(x.start,x.end,x.text) for x in recognition.captions]
+        words = recognition.words
         origin = "faster_whisper_asr"
+        alignment = recognition.alignment
+        recognized_language = recognition.language
     captions = [Caption(max(0,c.start),min(info["duration"],c.end),c.text)
                 for c in captions if c.start < info["duration"] and c.end > 0]
     if not captions:
@@ -338,11 +320,22 @@ def make_reference(args) -> None:
                         "duration":round(end-start,3),"encoded_duration":round(actual["duration"],3),
                         "scene_label":f"镜头{i:03d}","role":"待确认"})
         print(f"[reference] {filename} {start:.2f}–{end:.2f}s",flush=True)
-    manifest={"version":"0.2.0","reference_filename":source.name,
+    transcript_parts = assign_words_to_segments(entries, words)
+    for entry, script in zip(entries, transcript_parts):
+        entry["transcript"] = script
+    transcript_md = out / "segments_transcript.md"
+    write_segment_document(transcript_md, source.name, info["duration"],
+                           entries, transcript_parts, origin, alignment,
+                           args.model if origin == "faster_whisper_asr" else None)
+    manifest={"version":"0.3.0","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
               "caption_source":origin,
+              "transcript_document":"segments_transcript.md",
+              "transcript_alignment":alignment,
+              "asr_model":args.model if origin == "faster_whisper_asr" else None,
+              "asr_language":recognized_language,
               "subtitle_style_status":"pending_visual_review",
               "subtitle_style_profile":"subtitle_style_profile.json",
               "subtitle_sample_contact":"subtitle_samples/subtitle_reference_contact.jpg",
@@ -358,12 +351,12 @@ def make_reference(args) -> None:
     # Easy cross-window transfer: includes reference samples, timing and style status,
     # never the full original video or private audio.
     with zipfile.ZipFile(out/"subtitle_reference_stylekit.zip","w",zipfile.ZIP_DEFLATED) as archive:
-        for name in ("captions.srt","manifest.json","subtitle_style_profile.json"):
+        for name in ("captions.srt","segments_transcript.md","manifest.json","subtitle_style_profile.json"):
             archive.write(out/name,arcname=name)
         for sample in sorted((out/"subtitle_samples").glob("*")):
             if sample.is_file():
                 archive.write(sample,arcname="subtitle_samples/"+sample.name)
-    print(f"完成：{len(entries)}段；{out/'numbered_segments.zip'}；{out/'captions.srt'}；字幕样式参考包 {out/'subtitle_reference_stylekit.zip'}")
+    print(f"完成：{len(entries)}段；视频ZIP {out/'numbered_segments.zip'}；SRT {out/'captions.srt'}；逐段台词 {transcript_md}；字幕样式参考包 {out/'subtitle_reference_stylekit.zip'}")
 
 
 def resolve_order(clips: list[Path], order_file: Path|None,
@@ -648,10 +641,43 @@ def assemble(args)->None:
     print(f"完成：{target} ({final['duration']:.2f}s)；报告：{report_path}")
 
 
+def transcribe_only(args) -> None:
+    """Independent local audio-to-text without scene splitting."""
+    source = args.input.resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    out = args.out.resolve()
+    if out.exists() and any(out.iterdir()) and not args.overwrite:
+        raise FileExistsError(f"输出目录非空: {out}。换目录或指定 --overwrite")
+    out.mkdir(parents=True, exist_ok=True)
+    recognized = recognize(source, args.model, args.device, args.language)
+    save_srt([Caption(s.start,s.end,s.text) for s in recognized.captions],out/"captions.srt")
+    write_whole_transcript(out/"transcript.md",source.name,recognized.captions,
+                           args.model,recognized.language,recognized.alignment)
+    print(f"完成语音识别：{out/'captions.srt'}；{out/'transcript.md'}")
+
+
+def doctor() -> None:
+    """Never downloads packages or weights; read-only local capability check."""
+    import importlib.util
+    from . import __version__
+    present = importlib.util.find_spec("faster_whisper") is not None
+    print(json.dumps({
+        "clipflow_version": __version__,
+        "ffmpeg_installed": shutil.which("ffmpeg") is not None,
+        "ffprobe_installed": shutil.which("ffprobe") is not None,
+        "asr_backend": "faster-whisper",
+        "asr_dependency_installed": present,
+        "asr_model_ready": "not_checked",
+        "asr_install_command": "python -m pip install -e '.[asr]'",
+        "model_note": "首次下载模型需联网；也可以 --model 指向已缓存的本地模型目录。",
+    }, ensure_ascii=False, indent=2))
+
+
 def parser()->argparse.ArgumentParser:
-    p=argparse.ArgumentParser(prog="clipflow",description="对标视频拆分、水印C、SRT；新视频拼接与去灰通透。无默认60帧。")
+    p=argparse.ArgumentParser(prog="clipflow",description="对标视频拆分、水印C、ASR/SRT、逐段台词；新片段拼接与去灰通透，不默认60帧。")
     sub=p.add_subparsers(dest="action",required=True)
-    ref=sub.add_parser("reference",help="阶段一：对标视频 -> 镜头片段001...ZIP + SRT")
+    ref=sub.add_parser("reference",help="阶段一：视频 -> 编号片段ZIP + 原声识别SRT + 逐段台词MD")
     ref.add_argument("--input",type=Path,required=True)
     ref.add_argument("--out",type=Path,required=True)
     ref.add_argument("--srt",type=Path,help="用已有SRT；省略则运行本地faster-whisper ASR")
@@ -664,6 +690,14 @@ def parser()->argparse.ArgumentParser:
     ref.add_argument("--crf",type=int,default=19)
     ref.add_argument("--preset",default="veryfast")
     ref.add_argument("--overwrite",action="store_true")
+    tr=sub.add_parser("transcribe",help="独立音频识别：视频/音频 -> SRT + 全文MD（无需画面自带字幕）")
+    tr.add_argument("--input",type=Path,required=True,help="含人声的视频或音频文件")
+    tr.add_argument("--out",type=Path,required=True,help="输出目录")
+    tr.add_argument("--model",default="small",help="Whisper模型名或已下载的本地模型目录")
+    tr.add_argument("--device",default="cpu",help="cpu 或 cuda")
+    tr.add_argument("--language",default="zh",help="中文zh；自动识别可用auto")
+    tr.add_argument("--overwrite",action="store_true")
+    sub.add_parser("doctor",help="检查FFmpeg与本地ASR依赖状态，不下载安装")
     ass=sub.add_parser("assemble",help="阶段二：新片段自动排顺序拼接＋去灰通透；原声/字幕仅按显式选项")
     ass.add_argument("--clips-dir",type=Path)
     ass.add_argument("--clips",type=Path,nargs="+")
@@ -694,6 +728,8 @@ def main(argv:list[str]|None=None)->int:
     try:
         if args.action=="reference":make_reference(args)
         elif args.action=="assemble":assemble(args)
+        elif args.action=="transcribe":transcribe_only(args)
+        elif args.action=="doctor":doctor()
     except (OSError,ValueError,RuntimeError,AssertionError) as exc:
         print(f"错误：{exc}",file=sys.stderr)
         return 2
