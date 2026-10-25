@@ -159,6 +159,17 @@ GitHub仓库只发布程序源代码、测试和说明，**绝不包含原视频
 MIT；依赖FFmpeg、OpenCV、faster-whisper 等各自遵循其许可证。发布包不附带字体文件或模型权重。
 
 
+## 2026-10-26 实际部署验收
+
+- **实际部署**：Vercel 独立项目 `clipflow-asr-private`；生产根地址 `https://clipflow-asr-private.vercel.app`，POST 接口 `/v1/transcribe?language=zh`。
+- **服务器状态**：生产部署 READY、`GET /health` 返回 HTTP 200，Whisper Small 模型文件存在。
+- **真实推理验证**：隔离预览部署使用临时合成普通话音频实际运行 Whisper，返回中文文本、词级 `start/end` 时间戳和语言 `zh`。机器人合成发音不自然造成个别识别错误，不能声称所有口播100%准确。
+- **生产接口验收**：受保护的隔离测试客户端对生产URL发送真实POST音频请求；无密钥返回 401，有服务器密钥返回 200，返回 `captions`、`words`、`alignment=word_timestamps`、`language=zh`。这一测试覆盖生产网络、应用鉴权及实际推理接口，但没有验证每种真实人声/口音的准确率。
+- **访问控制**：生产API向网络开放但要求应用Bearer密钥；Vercel预览环境仍由Vercel Authentication保护。未配置正确密钥的请求不能使用模型。服务限制每块最长30秒、最大3MB，处理音频使用临时文件，不把用户视频/音频提交到公开GitHub。
+- **客户端接入（每个获授权运行环境配置一次）**：在安全环境变量中设置 `CLIPFLOW_ASR_URL=https://clipflow-asr-private.vercel.app` 及 `CLIPFLOW_ASR_API_KEY`（由所有者经安全渠道分配；不得将值写入提示词、README、ChatGPT聊天或公共仓库）。运行 `clipflow doctor` 检查客户端配置，再以 `clipflow transcribe` 或 `clipflow reference` 处理真实媒体。其他ChatGPT账号**不会自动继承密钥或Python运行环境**。
+- **测试范围**：云端部署、中文语音识别引擎和生产API的有密钥/无密钥调用均已验收；不同ChatGPT账号的独立客户端接入仍须在各自已授权环境配置凭据并以实际视频确认，不能因为云端就绪就宣称所有账号已经自动连接。
+- **保留两阶段行为**：水印拆分+SRT+逐段台词MD，第二阶段默认排序拼接+去灰通透；原声替换和字幕压制只在用户明确要求时执行，不默认60帧。
+
 ## v0.4.0：统一云端ASR（只需服务端部署一次模型）
 
 **工作方式：** ClipFlow客户端从视频提取每段约20秒的16kHz单声道FLAC音频，以HTTPS和Bearer密钥发送至专用云端ASR服务；云端运行Whisper Small中文识别，返回带时间戳的文字。客户端仍在本地生成 `captions.srt`、`segments_transcript.md`、001起的分段水印ZIP。**原视频画面和视频片段不会传给ASR，也不上传GitHub。**
