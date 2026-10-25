@@ -4,7 +4,9 @@
 
 ## 用户直接上传“对标视频”
 
-默认一并执行原先功能①②③：镜头/人物和对白时间分析、每段≤10秒切分、C方案001…编号水印（文本alpha 40%、黑描边alpha80%、横屏10px/竖屏7px），自动生成完整原视频SRT。输出 numbered_segments.zip、captions.srt、manifest.json，同时生成 subtitle_samples/ 原帧字幕样张与 subtitle_style_profile.json 待核验模板。使用 `clipflow reference --input ... --out ...`；先确认ASR可用，否则明确说明需安装依赖/使用用户已校对SRT。不要伪称已经ASR识别。
+默认一并执行原先功能①②③：镜头/人物和对白时间分析、每段≤10秒切分、C方案001…编号水印（文本alpha 40%、黑描边alpha80%、横屏10px/竖屏7px），自动生成完整原视频SRT。输出 numbered_segments.zip、captions.srt、**segments_transcript.md（每段编号/起止时间/时长/对应台词）**、manifest.json，同时生成 subtitle_samples/ 原帧字幕样张与 subtitle_style_profile.json 待核验模板。使用 `clipflow reference --input ... --out ...`；先确认ASR可用，否则明确说明需安装依赖/使用用户已校对SRT。不要伪称已经ASR识别。
+
+**无画面字幕时的ASR为正式功能**：省略 `--srt` 即从对标视频的原声音轨运行 faster-whisper，优先使用词级时间戳，生成全文SRT并自动按最终分段把台词写进 `segments_transcript.md`（同时写入manifest逐段`transcript`字段）。若没有词级时间戳，或者使用了传入的SRT，则按字幕范围做比例估算并在MD注明。首次安装ASR：`python -m pip install -e '.[asr]'` 或 `python scripts/setup_asr.py --model small`；`clipflow doctor` 可检查依赖是否存在。安装依赖失败/模型不可用/无音轨时明确停止，不编造识别结果。单独语音转文字可用 `clipflow transcribe --input ... --out ...`。不要把“给定SRT”写成“已执行ASR”。
 
 人物身份、机位角度、复杂特效不可能仅靠颜色帧差百分之百判定；需要核对片段和句尾。如果用户要求角色标签，请通过观察/模型判断后写入manifest，不要伪造。
 

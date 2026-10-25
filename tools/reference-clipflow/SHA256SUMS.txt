@@ -1,2 +1,2 @@
-52e7d6e052abb73f4e5cc628b69ba8e07c8868e74e19b5671911e6b72e389348  reference-clipflow-release-v0.3.0.zip
-52e7d6e052abb73f4e5cc628b69ba8e07c8868e74e19b5671911e6b72e389348  reference-clipflow-release.zip
+f81159dd5179a1f0c59905de8a05face99dc8b47bb7c5b7f73a1ae5fa10f236c  reference-clipflow-release-v0.3.0.zip
+f81159dd5179a1f0c59905de8a05face99dc8b47bb7c5b7f73a1ae5fa10f236c  reference-clipflow-release.zip
