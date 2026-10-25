@@ -10,7 +10,7 @@
 
 ## 用户直接上传“对标视频”
 
-默认一并执行原先功能①②③：镜头/人物和对白时间分析、每段≤10秒切分、C方案001…编号水印（文本alpha 40%、黑描边alpha80%、横屏10px/竖屏7px），自动生成完整原视频SRT。**首要交付一个 `ClipFlow_完整交付.zip`**，内部包含 segments/ 所有编号MP4、captions.srt、segments_transcript.md（每段一节台词，只在段标题列起止时间）、manifest.json、segments_list.csv、subtitle_samples/（联系表及原帧字幕样张）、subtitle_style_profile.json；旧版两个拆分ZIP仅为兼容保留。程序必须在交付前读回ZIP检查CRC、成员、非空、数量与编号，并仅对真实存在、可下载的文件提供链接。使用 `clipflow reference --input ... --out ...`；先确认ASR可用，否则明确说明需安装依赖/使用用户已校对SRT。不要伪称已经ASR识别。
+默认一并执行原先功能①②③：镜头/人物和对白时间分析、每段≤10秒切分、C方案001…编号水印（文本alpha 40%、黑描边alpha80%、横屏10px/竖屏7px），自动生成完整原视频SRT。**首要交付一个 `ClipFlow_完整交付.zip`**，内部包含 segments/ 所有编号MP4、captions.srt、segments_transcript.md（每段一节台词，只在段标题列起止时间）、manifest.json、segments_list.csv、subtitle_samples/（联系表及原帧字幕样张）、subtitle_style_profile.json；以及 `segment_stills/001_镜头.jpg` 等每段一张开头干净截图；旧版两个拆分ZIP仅为兼容保留。程序必须在交付前读回ZIP检查CRC、成员、非空、数量与编号，并仅对真实存在、可下载的文件提供链接。使用 `clipflow reference --input ... --out ...`；先确认ASR可用，否则明确说明需安装依赖/使用用户已校对SRT。不要伪称已经ASR识别。
 
 **无画面字幕时的ASR为正式功能**：省略 `--srt` 即从对标视频的原声音轨运行 faster-whisper，优先使用词级时间戳，生成全文SRT并自动按最终分段把台词写进 `segments_transcript.md`（同时写入manifest逐段`transcript`字段）。若没有词级时间戳，或者使用了传入的SRT，则按字幕范围做比例估算并在MD注明。首次安装ASR：`python -m pip install -e '.[asr]'` 或 `python scripts/setup_asr.py --model small`；`clipflow doctor` 可检查依赖是否存在。安装依赖失败/模型不可用/无音轨时明确停止，不编造识别结果。单独语音转文字可用 `clipflow transcribe --input ... --out ...`。不要把“给定SRT”写成“已执行ASR”。
 
@@ -42,6 +42,7 @@
 - 编码：保留输入分辨率/帧率；**不默认做60帧高清重制/AI补帧**。
 - 安全：原素材、字幕、用户音轨只能保留在用户作业目录；禁止提交GitHub。
 - 输出：第一阶段首要交付单一完整ZIP，内含分段MP4、SRT、每段一条台词的MD、切分清单、字幕样张。检查ZIP成员、CRC、数量、大小，确认沙箱/附件真实存在后给下载链接；未运行成功不能声称完成。
+- **开头截图（v0.4.2新增）**：第一阶段每个片段必须输出一张 `segment_stills/NNN_镜头.jpg`，编号和MP4一一对应。从原始对标视频对应片段起点的前0.6秒／最多20帧中，优先选择不黑场、不闪白、清晰和稳定的原始帧；保持原分辨率，不裁剪、不调色、不添加编号水印。内嵌原字幕或原场景内容保留。`manifest.json`应记录截图文件、原视频帧编号和时间。算法只能做清晰度／曝光技术筛选，不能保证人脸一定睁眼或没有表情瑕疵，需要抽查。缺一张截图或编号不匹配，禁止交付ZIP。
 
 
 ## 云端ASR执行门禁（v0.4.0）

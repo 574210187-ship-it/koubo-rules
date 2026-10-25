@@ -27,6 +27,7 @@ from .subtitle_style import (create_reference_samples, create_style_template,
 from .asr import TimedText, recognize, estimate_character_timing
 from .transcript import (assign_words_to_segments, write_segment_document,
                          write_whole_transcript, human_time)
+from .stills import export_segment_still
 
 
 def require_binary(name: str) -> None:
@@ -273,15 +274,16 @@ def write_segment_list_csv(path: Path, entries: list[dict]) -> None:
     """Produce a simple importable segment inventory; never a second transcript."""
     with path.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["编号", "文件", "开始", "结束", "时长（秒）"])
+        writer.writerow(["编号", "文件", "开始", "结束", "时长（秒）", "截图文件"])
         for segment in entries:
             start, end = float(segment["start"]), float(segment["end"])
             writer.writerow([f"{int(segment['index']):03d}", segment["file"],
-                             human_time(start), human_time(end), f"{end-start:.3f}"])
+                             human_time(start), human_time(end), f"{end-start:.3f}",
+                             segment.get("still_image", "")])
 
 
 def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
-    """Single self-contained first-stage ZIP: video + SRT + per-clip MD + index + samples.
+    """Single first-stage ZIP: video, one still per clip, SRT, MD, index, samples.
 
     Atomic output and real ZIP readback are mandatory. An output must not be
     reported to the user if one requested member is missing or unreadable.
@@ -308,6 +310,11 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
         raise RuntimeError("缺少原分辨率字幕样张，拒绝交付")
     for sample in samples:
         members["subtitle_samples/"+sample.name] = sample
+    for row in entries:
+        still_name = "segment_stills/" + Path(str(row["file"])).stem + ".jpg"
+        if row.get("still_image") != still_name:
+            raise RuntimeError(f"截图文件与视频编号不一致: {row['file']}")
+        members[still_name] = out/still_name
     for name, path in members.items():
         if not path.is_file() or path.stat().st_size <= 0:
             raise RuntimeError(f"交付文件不存在或为空: {name}")
@@ -337,6 +344,12 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
             check = json.loads(z.read("manifest.json").decode("utf-8"))
             if len(check.get("segments", [])) != len(entries):
                 raise RuntimeError("交付ZIP中切分清单与片段数量不一致")
+            for row in check["segments"]:
+                if row.get("still_image") != "segment_stills/" + Path(row["file"]).stem + ".jpg":
+                    raise RuntimeError("清单内截图与MP4编号无法一一对应")
+            if sum(name.startswith("segment_stills/") and name.endswith(".jpg")
+                   for name in z.namelist()) != len(entries):
+                raise RuntimeError("截图张数与片段数量不一致")
         intermediate.replace(destination)
     finally:
         intermediate.unlink(missing_ok=True)
@@ -391,9 +404,11 @@ def make_reference(args) -> None:
         actual=media_info(target)
         if actual["duration"] > 10.02:
             raise RuntimeError(f"片段 {filename} 实际超过10秒: {actual['duration']:.3f}")
+        still_target = out/"segment_stills"/(Path(filename).stem + ".jpg")
+        still_info = export_segment_still(source, start, end, still_target)
         entries.append({"index":i,"file":filename,"start":start,"end":end,
                         "duration":round(end-start,3),"encoded_duration":round(actual["duration"],3),
-                        "scene_label":f"镜头{i:03d}","role":"待确认"})
+                        "scene_label":f"镜头{i:03d}","role":"待确认", **still_info})
         print(f"[reference] {filename} {start:.2f}–{end:.2f}s",flush=True)
     transcript_parts = assign_words_to_segments(entries, words)
     for entry, script in zip(entries, transcript_parts):
@@ -402,7 +417,7 @@ def make_reference(args) -> None:
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
                            args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.1","reference_filename":source.name,
+    manifest={"version":"0.4.2","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
@@ -414,6 +429,7 @@ def make_reference(args) -> None:
               "subtitle_style_status":"pending_visual_review",
               "subtitle_style_profile":"subtitle_style_profile.json",
               "subtitle_sample_contact":"subtitle_samples/subtitle_reference_contact.jpg",
+              "segment_still_policy":"each_segment_opening_0.6s_original_reference_clean_frame",
               "watermark":{
                   "scheme":"C","text_alpha":0.4,"stroke_alpha":0.8,
                   "landscape_stroke_px_at_1920w":10,"portrait_stroke_px_at_1080w":7},

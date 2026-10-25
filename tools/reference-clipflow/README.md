@@ -1,12 +1,12 @@
 # Reference ClipFlow（对标短视频两阶段工作流）
 
-一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.1**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
+一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.2**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
 
 ## 两阶段，一键完成用户确认的1–5项需求
 
 | 阶段 | 输入 | 默认执行 | 输出 |
 |---|---|---|---|
-| **1. 对标视频处理** | 一个参考 MP4 | 视觉镜头检测＋≤10秒拆分＋C方案水印＋音频ASR/SRT | **`ClipFlow_完整交付.zip`**（分段MP4、`captions.srt`、`segments_transcript.md`、`manifest.json`、`segments_list.csv`、字幕样张及样式配置）；另保留旧版独立ZIP兼容 |
+| **1. 对标视频处理** | 一个参考 MP4 | 视觉镜头检测＋≤10秒拆分＋C方案水印＋音频ASR/SRT | **`ClipFlow_完整交付.zip`**（分段MP4、每段开头截图、`captions.srt`、`segments_transcript.md`、`manifest.json`、`segments_list.csv`、字幕样张及样式配置）；另保留旧版独立ZIP兼容 |
 | **2. 新片段合成** | 多个新视频MP4 | 排序 → **原样完整拼接**（不变速、不额外裁切） → 模拟「去灰通透」调色 | 合成MP4、验收报告JSON |
 
 两个**明确可选项**：**原视频声音替换** `--replace-audio` 与 **字幕压制** `--burn-subtitles`。未要求时两者**都不做**；不会自作主张叠字或换音轨。
@@ -39,6 +39,16 @@ clipflow transcribe --input "无字幕的原视频.mp4" --out "asr_only" --model
 # 输出 asr_only/captions.srt + asr_only/transcript.md（逐条字幕时间与台词）
 ```
 
+## v0.4.2：每段视频增加开头干净截图
+
+每次第一阶段导出的视频片段，必须同时生成**一段一张** `segment_stills/001_镜头.jpg`、`002_镜头.jpg`……，和 `segments/001_镜头.mp4` 等一一对应。
+
+- **取帧范围**：从原视频中该片段起点往后 **0.6秒以内、最多20帧**，不从中后段截图；短片段只取段内真正存在的帧。
+- **挑选原则**：用曝光、黑场/闪白检测、画面清晰度和帧间稳定度评分，优先避免黑屏、闪白、模糊和转场残影；同等质量优先靠近段首。该规则只代表技术筛选，不能保证人物一定没有闭眼或异常嘴型，重要项目仍需抽查。
+- **截图质量**：保留原视频分辨率，以高质量JPEG输出，不缩放、不裁切、不重新调色、不添加编号水印；原视频中已存在的字幕和场景元素不擅自移除。
+- **可追溯性**：`manifest.json` 各段记录截图路径、选中的原视频时间、段内偏移与原始帧序号；`segments_list.csv` 追加截图文件列。
+- **强制验收**：`ClipFlow_完整交付.zip` 必须包含且仅包含每段对应的一张 JPG；数量、编号、非空文件、清单引用和ZIP CRC均校验。缺失或不匹配时必须报错，不将不完整ZIP作为成品交付。
+
 ## v0.4.1：第一阶段完整交付 ZIP（默认主交付）
 
 不再让用户分别下载视频ZIP和字幕参考ZIP。处理一条对标视频，**必须首先交付一个可下载的 `ClipFlow_完整交付.zip`**，它的内容固定为：
@@ -46,10 +56,11 @@ clipflow transcribe --input "无字幕的原视频.mp4" --out "asr_only" --model
 ```text
 ClipFlow_完整交付.zip
 ├── segments/001_镜头.mp4, 002_镜头.mp4, ...
+├── segment_stills/001_镜头.jpg, 002_镜头.jpg, ...  # 每段开头最清晰一帧
 ├── captions.srt                  # 完整原视频时间轴，剪映导入
 ├── segments_transcript.md       # 只按片段分段台词，不给每句话标时间
 ├── manifest.json                # 机器可读切分清单及来源证据
-├── segments_list.csv            # 简易切分清单（编号／文件／时间范围／时长）
+├── segments_list.csv            # 简易切分清单（编号／文件／时间范围／时长／截图文件）
 ├── subtitle_style_profile.json  # 对标样式待审核配置
 └── subtitle_samples/            # 联系表、原视频截图、样张索引
     ├── subtitle_reference_contact.jpg
@@ -81,6 +92,7 @@ clipflow reference --input "对标原视频.mp4" --out "project" --srt "人工�
 project/
   captions.srt                 # 对标完整视频的可导入剪映字幕（UTF-8 BOM）
   segments_transcript.md      # 001...编号、原视频起止时间、每段时长与识别台词
+  ClipFlow_完整交付.zip        # 首要交付：分段MP4+开头截图+SRT+台词MD+清单+样张
   numbered_segments.zip       # 001_镜头.mp4 ... NNN_镜头.mp4
   manifest.json               # 参考视频起止秒、序号、音轨/分辨率、方案C参数
   subtitle_style_profile.json # 待视觉审核的对标样式配置（初始不作假定）
@@ -89,6 +101,9 @@ project/
   segments/                   # 单段MP4
     001_镜头.mp4
     002_镜头.mp4
+  segment_stills/             # 每段开头一张未加额外编号水印的原画面JPG
+    001_镜头.jpg
+    002_镜头.jpg
 ```
 
 ### 无画面字幕时的真实音频识别与逐片段文案
