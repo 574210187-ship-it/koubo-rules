@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "description": "双分支：主视频＋图／主视频＋视频。两者都只生成一张静态透明文字PNG；动态多页需00人工定稿，不得滚动或偷切页。",
+  "routes": [
+    {
+      "id": "STATIC_REF_IMAGE",
+      "match": {
+        "input_kind": "main_video+reference_image",
+        "text_mode": "STATIC_FULL_DURATION",
+        "playback": "ORIGINAL_SPEED_TRIM",
+        "effects": "NONE"
+      },
+      "engine_id": "STATIC_TEXT_CLIP_ENGINE",
+      "stages": [
+        {
+          "id": "01_TEXT",
+          "artifacts": [
+            {
+              "name": "text_rgba",
+              "file_type": "png",
+              "tool": "ImageGen",
+              "content": "static overlay full-duration; no effects"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "STATIC_REF_VIDEO",
+      "match": {
+        "input_kind": "main_video+reference_video",
+        "text_mode": "STATIC_FULL_DURATION",
+        "playback": "ORIGINAL_SPEED_TRIM",
+        "effects": "NONE"
+      },
+      "engine_id": "STATIC_TEXT_CLIP_ENGINE",
+      "stages": [
+        {
+          "id": "01_TEXT",
+          "artifacts": [
+            {
+              "name": "text_rgba",
+              "file_type": "png",
+              "tool": "ImageGen",
+              "content": "static overlay full-duration; no effects"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

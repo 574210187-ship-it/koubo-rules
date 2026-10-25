@@ -1,0 +1,21 @@
+{
+  "schema": "shikuang-sync-targets/v2",
+  "version": "v1.0.2-public-candidate",
+  "library_folder": "/实况/单窗口/releases/v1.0.2-public-candidate/",
+  "github": {
+    "repo": "574210187-ship-it/koubo-rules",
+    "visibility": "public",
+    "branch": "shikuang-public-v1.0.2",
+    "path_prefix": "projects/shikuang-singlewindow/",
+    "startup_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.0.2/projects/shikuang-singlewindow/START_HERE.md",
+    "release_zip_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.0.2/projects/shikuang-singlewindow/releases/shikuang-singlewindow-v1.0.2-public-candidate.zip",
+    "mutation_policy": "separate_public_release_branch; do not modify main"
+  },
+  "cos": {
+    "status": "BLOCKED_NO_GENERIC_COS_WRITE",
+    "reason": "Existing connected COS MCP is a private expression PNG/GIF only library and cannot store ZIP."
+  },
+  "publication_state": "PUBLIC_GITHUB_PLUS_LIBRARY_PENDING_INDEPENDENT_READBACK",
+  "no_credentials_in_bundle": true,
+  "new_accounts_require_own_tools": true
+}

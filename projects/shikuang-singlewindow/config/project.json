@@ -1,0 +1,15 @@
+{
+  "project_name": "实况视频单窗口",
+  "version": "v1.0.2-public-candidate",
+  "default_mode": "REVIEW",
+  "duration_target_seconds": 2.9,
+  "duration_must_be_less_than": 3.0,
+  "playback": "ORIGINAL_SPEED_TRIM",
+  "text_motion": "NONE",
+  "image_generation": "IMAGEGEN_ONLY",
+  "auto_requires_real_imagegen": true,
+  "auto_requires_visual_qa": true,
+  "engine_approval_required": true,
+  "public_release": true,
+  "release_zip_policy": "immutable versioned SHA256"
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "description": "静态文字原速截取候选引擎。真实样本验收和用户批准前不得启动生产。",
+  "engines": [
+    {
+      "id": "STATIC_TEXT_CLIP_ENGINE",
+      "status": "CANDIDATE_NOT_APPROVED",
+      "zip_path": "engines/static_text_clip_candidate_v0.2.0.zip",
+      "sha256": "230255a6e49fa3f97c019cebf7909f867838f9fe1b41a1ec4c5ba06e3acc6c7d",
+      "command": [
+        "{python}",
+        "run.py",
+        "--job",
+        "{job}",
+        "--out",
+        "{out}"
+      ],
+      "outputs": [
+        {
+          "name": "final_animation.mp4",
+          "file_type": "video"
+        }
+      ]
+    }
+  ]
+}
