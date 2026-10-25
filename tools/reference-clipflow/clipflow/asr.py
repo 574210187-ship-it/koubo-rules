@@ -69,8 +69,8 @@ def _captions_from_words(words: list[TimedText], max_chars: int = 16,
     return cues
 
 
-def recognize(source: Path, model: str = "small", device: str = "cpu",
-              language: str = "zh") -> Recognition:
+def recognize_local(source: Path, model: str = "small", device: str = "cpu",
+                    language: str = "zh", model_instance=None) -> Recognition:
     """Transcribe audio/video offline using installed faster-whisper.
 
     First invocation of a named model such as ``small`` normally needs an
@@ -103,8 +103,8 @@ def recognize(source: Path, model: str = "small", device: str = "cpu",
                 f" FFmpeg: {proc.stderr[-600:]}"
             )
         try:
-            wm = WhisperModel(model, device=device,
-                              compute_type="int8" if device == "cpu" else "auto")
+            wm = model_instance if model_instance is not None else WhisperModel(
+                model, device=device, compute_type="int8" if device == "cpu" else "auto")
             segments, details = wm.transcribe(
                 str(wav), language=None if language == "auto" else language, vad_filter=True,
                 word_timestamps=True, beam_size=5,
@@ -147,3 +147,19 @@ def recognize(source: Path, model: str = "small", device: str = "cpu",
     return Recognition(captions, words,
                        "mixed_estimated" if had_estimates else "word_timestamps",
                        str(getattr(details,"language",language)))
+
+
+def recognize(source: Path, model: str = "small", device: str = "cpu",
+              language: str = "zh", backend: str = "auto") -> Recognition:
+    """Cloud-first if configured, otherwise backwards-compatible local ASR."""
+    import os
+    backend = os.getenv("CLIPFLOW_ASR_BACKEND", backend) if backend == "auto" else backend
+    if backend not in ("auto", "cloud", "local"):
+        raise ValueError("ASR backend must be auto, cloud or local")
+    cloud_ready = bool(os.getenv("CLIPFLOW_ASR_URL") and os.getenv("CLIPFLOW_ASR_API_KEY"))
+    if backend == "cloud" or (backend == "auto" and cloud_ready):
+        from .cloud_client import recognize_cloud
+        return recognize_cloud(source, model=model, language=language)
+    if backend == "auto" and (os.getenv("CLIPFLOW_ASR_URL") or os.getenv("CLIPFLOW_ASR_API_KEY")):
+        raise RuntimeError("云端ASR配置不完整：需要同时设置URL和API_KEY")
+    return recognize_local(source, model=model, device=device, language=language)

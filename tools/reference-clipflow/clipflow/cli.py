@@ -286,10 +286,10 @@ def make_reference(args) -> None:
         recognized_language = None
     else:
         print("[ASR] 正在从原视频音轨识别中文（无需画面自带字幕）...",flush=True)
-        recognition = recognize(source,args.model,args.device,args.language)
+        recognition = recognize(source,args.model,args.device,args.language,backend=args.asr_backend)
         captions = [Caption(x.start,x.end,x.text) for x in recognition.captions]
         words = recognition.words
-        origin = "faster_whisper_asr"
+        origin = "cloud_whisper_asr" if recognition.alignment.startswith("cloud_") else "faster_whisper_asr"
         alignment = recognition.alignment
         recognized_language = recognition.language
     captions = [Caption(max(0,c.start),min(info["duration"],c.end),c.text)
@@ -326,15 +326,15 @@ def make_reference(args) -> None:
     transcript_md = out / "segments_transcript.md"
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
-                           args.model if origin == "faster_whisper_asr" else None)
-    manifest={"version":"0.3.0","reference_filename":source.name,
+                           args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
+    manifest={"version":"0.4.0","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
               "caption_source":origin,
               "transcript_document":"segments_transcript.md",
               "transcript_alignment":alignment,
-              "asr_model":args.model if origin == "faster_whisper_asr" else None,
+              "asr_model":args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None,
               "asr_language":recognized_language,
               "subtitle_style_status":"pending_visual_review",
               "subtitle_style_profile":"subtitle_style_profile.json",
@@ -650,7 +650,7 @@ def transcribe_only(args) -> None:
     if out.exists() and any(out.iterdir()) and not args.overwrite:
         raise FileExistsError(f"输出目录非空: {out}。换目录或指定 --overwrite")
     out.mkdir(parents=True, exist_ok=True)
-    recognized = recognize(source, args.model, args.device, args.language)
+    recognized = recognize(source, args.model, args.device, args.language,backend=args.asr_backend)
     save_srt([Caption(s.start,s.end,s.text) for s in recognized.captions],out/"captions.srt")
     write_whole_transcript(out/"transcript.md",source.name,recognized.captions,
                            args.model,recognized.language,recognized.alignment)
@@ -666,11 +666,13 @@ def doctor() -> None:
         "clipflow_version": __version__,
         "ffmpeg_installed": shutil.which("ffmpeg") is not None,
         "ffprobe_installed": shutil.which("ffprobe") is not None,
-        "asr_backend": "faster-whisper",
+        "asr_backend": "cloud-if-configured-else-local-faster-whisper",
+        "cloud_endpoint_configured": bool(os.getenv("CLIPFLOW_ASR_URL")),
+        "cloud_api_key_configured": bool(os.getenv("CLIPFLOW_ASR_API_KEY")),
         "asr_dependency_installed": present,
         "asr_model_ready": "not_checked",
         "asr_install_command": "python -m pip install -e '.[asr]'",
-        "model_note": "首次下载模型需联网；也可以 --model 指向已缓存的本地模型目录。",
+        "model_note": "云端URL与密钥都已配置时不需要在客户端安装模型；否则本地首次下载模型需联网。",
     }, ensure_ascii=False, indent=2))
 
 
@@ -681,6 +683,7 @@ def parser()->argparse.ArgumentParser:
     ref.add_argument("--input",type=Path,required=True)
     ref.add_argument("--out",type=Path,required=True)
     ref.add_argument("--srt",type=Path,help="用已有SRT；省略则运行本地faster-whisper ASR")
+    ref.add_argument("--asr-backend",choices=["auto","cloud","local"],default="auto",help="配置云端地址和密钥时默认使用云端；否则本地")
     ref.add_argument("--model",default="small",help="faster-whisper 模型，默认 small")
     ref.add_argument("--device",default="cpu",help="cpu 或 cuda")
     ref.add_argument("--language",default="zh")
@@ -693,6 +696,7 @@ def parser()->argparse.ArgumentParser:
     tr=sub.add_parser("transcribe",help="独立音频识别：视频/音频 -> SRT + 全文MD（无需画面自带字幕）")
     tr.add_argument("--input",type=Path,required=True,help="含人声的视频或音频文件")
     tr.add_argument("--out",type=Path,required=True,help="输出目录")
+    tr.add_argument("--asr-backend",choices=["auto","cloud","local"],default="auto",help="配置云端地址和密钥时默认使用云端；否则本地")
     tr.add_argument("--model",default="small",help="Whisper模型名或已下载的本地模型目录")
     tr.add_argument("--device",default="cpu",help="cpu 或 cuda")
     tr.add_argument("--language",default="zh",help="中文zh；自动识别可用auto")

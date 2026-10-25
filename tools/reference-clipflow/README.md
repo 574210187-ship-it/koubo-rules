@@ -1,6 +1,6 @@
 # Reference ClipFlow（对标短视频两阶段工作流）
 
-一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.3.1**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
+一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.0**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
 
 ## 两阶段，一键完成用户确认的1–5项需求
 
@@ -157,3 +157,26 @@ GitHub仓库只发布程序源代码、测试和说明，**绝不包含原视频
 ## License
 
 MIT；依赖FFmpeg、OpenCV、faster-whisper 等各自遵循其许可证。发布包不附带字体文件或模型权重。
+
+
+## v0.4.0：统一云端ASR（只需服务端部署一次模型）
+
+**工作方式：** ClipFlow客户端从视频提取每段约20秒的16kHz单声道FLAC音频，以HTTPS和Bearer密钥发送至专用云端ASR服务；云端运行Whisper Small中文识别，返回带时间戳的文字。客户端仍在本地生成 `captions.srt`、`segments_transcript.md`、001起的分段水印ZIP。**原视频画面和视频片段不会传给ASR，也不上传GitHub。**
+
+**自动选择：** 设置了`CLIPFLOW_ASR_URL`和`CLIPFLOW_ASR_API_KEY`时，`clipflow reference`及`clipflow transcribe`默认调用云端；没有配置时保留旧版本地faster-whisper。可通过`--asr-backend cloud`或`--asr-backend local`显式选择。失败时报告原因，不编造文字，也不偷偷转发到其他服务。
+
+| 变量 | 放在哪里 | 用途 |
+|---|---|---|
+| `CLIPFLOW_ASR_URL` | 客户端安全环境变量 | 云端服务器HTTPS根地址 |
+| `CLIPFLOW_ASR_API_KEY` | 客户端秘密管理系统 | 带权限的访问密钥（不要写入GitHub/提示词） |
+| `CLIPFLOW_ASR_SERVER_KEY` | 云端容器秘密变量 | 校验客户端密钥；不设置时拒绝请求 |
+| `CLIPFLOW_ASR_CHUNK_SECONDS` | 客户端可选 | 默认20秒，允许5—25秒，每块限3MB |
+| `CLIPFLOW_ASR_SERVER_MODEL` | 服务端可选 | 默认 small；Docker构建时缓存模型 |
+
+### 云端部署
+
+项目提供 `Dockerfile.vercel` 供Vercel容器部署，也提供普通 `Dockerfile`。模型权重在镜像构建阶段下载一次，不要求各ChatGPT账号分别下载安装。**实际部署和在线使用可能产生云计算费用**，因此需要有授权的部署目标、平台秘密变量和实际中文音频验收；下载程序或通过离线测试并不代表服务已经上线。
+
+Vercel建议单独新建ClipFlow ASR项目，将Git仓库Root Directory设为`tools/reference-clipflow`，使用container/Dockerfile.vercel。服务暴露`GET /health`和`POST /v1/transcribe?language=zh`（请求体为音频FLAC）。服务器要求Bearer鉴权，只接收最长30秒、≤3MB音频片段，完成后清除临时文件。可用Docker主机替代Vercel。请在平台密钥管理界面设置密钥，不要在聊天中粘贴。
+
+**重要：** Cloud ASR仅能解决「每个账号不用各装模型」。其他ChatGPT账号仍需要能运行ClipFlow的文件/FFmpeg操作环境，以及能访问云端服务器的网络和授权凭据。云端没有真正部署、密钥没有配置、真实口播测试没有通过时，不能声称跨账号ASR已全面可用。音频发送到服务端必须获得用户授权并符合当地隐私要求；本地无云端配置时不发送任何音频。

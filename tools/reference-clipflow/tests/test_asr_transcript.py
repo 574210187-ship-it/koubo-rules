@@ -130,7 +130,7 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
     assert (output/"captions.srt").is_file()
     assert (output/"segments_transcript.md").is_file()
     manifest=json.loads((output/"manifest.json").read_text())
-    assert manifest["version"]=="0.3.0"
+    assert manifest["version"]=="0.4.0"
     assert manifest["caption_source"]=="supplied_srt"
     assert manifest["transcript_alignment"]=="srt_estimated"
     assert "segments_transcript.md"==manifest["transcript_document"]
