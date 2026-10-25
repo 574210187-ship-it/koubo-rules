@@ -6,6 +6,7 @@ Use `clipflow --help`, `clipflow reference --help`, and
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -25,7 +26,7 @@ from .subtitle_style import (create_reference_samples, create_style_template,
                              read_style_profile, convert_matched_ass)
 from .asr import TimedText, recognize, estimate_character_timing
 from .transcript import (assign_words_to_segments, write_segment_document,
-                         write_whole_transcript)
+                         write_whole_transcript, human_time)
 
 
 def require_binary(name: str) -> None:
@@ -268,6 +269,80 @@ def export_reference_segment(source: Path, target: Path,
              "-b:a", "160k", "-movflags", "+faststart", str(target)])
 
 
+def write_segment_list_csv(path: Path, entries: list[dict]) -> None:
+    """Produce a simple importable segment inventory; never a second transcript."""
+    with path.open("w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["编号", "文件", "开始", "结束", "时长（秒）"])
+        for segment in entries:
+            start, end = float(segment["start"]), float(segment["end"])
+            writer.writerow([f"{int(segment['index']):03d}", segment["file"],
+                             human_time(start), human_time(end), f"{end-start:.3f}"])
+
+
+def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
+    """Single self-contained first-stage ZIP: video + SRT + per-clip MD + index + samples.
+
+    Atomic output and real ZIP readback are mandatory. An output must not be
+    reported to the user if one requested member is missing or unreadable.
+    """
+    if not entries:
+        raise RuntimeError("没有拆分片段，不能生成完整交付ZIP")
+    if [int(x["index"]) for x in entries] != list(range(1, len(entries)+1)):
+        raise RuntimeError("片段编号不连续，不能交付")
+    mandatory = ["captions.srt", "segments_transcript.md", "manifest.json",
+                 "segments_list.csv", "subtitle_style_profile.json"]
+    members: dict[str, Path] = {}
+    for name in mandatory:
+        members[name] = out/name
+    for row in entries:
+        filename = str(row["file"])
+        if Path(filename).name != filename or not filename.lower().endswith(".mp4"):
+            raise RuntimeError(f"不安全的片段文件名: {filename!r}")
+        members["segments/" + filename] = out/"segments"/filename
+    samples = sorted((out/"subtitle_samples").glob("*"))
+    samples = [f for f in samples if f.is_file()]
+    if not any(f.name == "subtitle_reference_contact.jpg" for f in samples):
+        raise RuntimeError("缺少对标字幕样张总览，拒绝交付")
+    if not any(f.name.startswith("cue_") and f.suffix.lower() == ".jpg" for f in samples):
+        raise RuntimeError("缺少原分辨率字幕样张，拒绝交付")
+    for sample in samples:
+        members["subtitle_samples/"+sample.name] = sample
+    for name, path in members.items():
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise RuntimeError(f"交付文件不存在或为空: {name}")
+    md = (out/"segments_transcript.md").read_text("utf-8")
+    for item in entries:
+        if f"### 第{int(item['index']):03d}段｜" not in md:
+            raise RuntimeError(f"台词MD缺少第{item['index']:03d}段")
+    destination = out/"ClipFlow_完整交付.zip"
+    intermediate = out/".ClipFlow_完整交付.zip.partial"
+    try:
+        with zipfile.ZipFile(intermediate, "w", allowZip64=True) as z:
+            for name, path in members.items():
+                compress = (zipfile.ZIP_STORED if path.suffix.lower() in {".mp4", ".jpg", ".png"}
+                            else zipfile.ZIP_DEFLATED)
+                z.write(path, arcname=name, compress_type=compress)
+        if not zipfile.is_zipfile(intermediate):
+            raise RuntimeError("交付ZIP格式校验失败")
+        with zipfile.ZipFile(intermediate, "r") as z:
+            if len(z.namelist()) != len(members) or set(z.namelist()) != set(members):
+                raise RuntimeError("交付ZIP清单与实际成员不一致")
+            corrupt = z.testzip()
+            if corrupt:
+                raise RuntimeError(f"交付ZIP内部成员校验失败: {corrupt}")
+            for name, path in members.items():
+                if z.getinfo(name).file_size != path.stat().st_size:
+                    raise RuntimeError(f"交付ZIP内部文件长度不一致: {name}")
+            check = json.loads(z.read("manifest.json").decode("utf-8"))
+            if len(check.get("segments", [])) != len(entries):
+                raise RuntimeError("交付ZIP中切分清单与片段数量不一致")
+        intermediate.replace(destination)
+    finally:
+        intermediate.unlink(missing_ok=True)
+    return destination
+
+
 def make_reference(args) -> None:
     source = args.input.resolve()
     if not source.is_file():
@@ -327,7 +402,7 @@ def make_reference(args) -> None:
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
                            args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.0","reference_filename":source.name,
+    manifest={"version":"0.4.1","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
@@ -356,7 +431,10 @@ def make_reference(args) -> None:
         for sample in sorted((out/"subtitle_samples").glob("*")):
             if sample.is_file():
                 archive.write(sample,arcname="subtitle_samples/"+sample.name)
-    print(f"完成：{len(entries)}段；视频ZIP {out/'numbered_segments.zip'}；SRT {out/'captions.srt'}；逐段台词 {transcript_md}；字幕样式参考包 {out/'subtitle_reference_stylekit.zip'}")
+    write_segment_list_csv(out/"segments_list.csv", entries)
+    complete_zip = build_complete_delivery_zip(out, entries)
+    print(f"[delivery] 完整交付ZIP已通过成员、CRC、时长清单与片段数量校验：{complete_zip} ({complete_zip.stat().st_size} 字节)")
+    print(f"完成：{len(entries)}段；主要交付 {complete_zip}；单独SRT {out/'captions.srt'}；逐段台词 {transcript_md}")
 
 
 def resolve_order(clips: list[Path], order_file: Path|None,

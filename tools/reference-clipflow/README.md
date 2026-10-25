@@ -1,12 +1,12 @@
 # Reference ClipFlow（对标短视频两阶段工作流）
 
-一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.0**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
+一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.1**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
 
 ## 两阶段，一键完成用户确认的1–5项需求
 
 | 阶段 | 输入 | 默认执行 | 输出 |
 |---|---|---|---|
-| **1. 对标视频处理** | 一个参考 MP4 | 视觉镜头变化检测 + 对白句尾辅助切分（每段 ≤10s） + C方案水印（001…，40%白字、80%黑描边） + ASR/SRT | `numbered_segments.zip`、`captions.srt`、**`segments_transcript.md`（编号+时间+台词）**、`manifest.json`、字幕样张及样式配置模板（可一键下载 `subtitle_reference_stylekit.zip`） |
+| **1. 对标视频处理** | 一个参考 MP4 | 视觉镜头检测＋≤10秒拆分＋C方案水印＋音频ASR/SRT | **`ClipFlow_完整交付.zip`**（分段MP4、`captions.srt`、`segments_transcript.md`、`manifest.json`、`segments_list.csv`、字幕样张及样式配置）；另保留旧版独立ZIP兼容 |
 | **2. 新片段合成** | 多个新视频MP4 | 排序 → **原样完整拼接**（不变速、不额外裁切） → 模拟「去灰通透」调色 | 合成MP4、验收报告JSON |
 
 两个**明确可选项**：**原视频声音替换** `--replace-audio` 与 **字幕压制** `--burn-subtitles`。未要求时两者**都不做**；不会自作主张叠字或换音轨。
@@ -39,7 +39,31 @@ clipflow transcribe --input "无字幕的原视频.mp4" --out "asr_only" --model
 # 输出 asr_only/captions.srt + asr_only/transcript.md（逐条字幕时间与台词）
 ```
 
-## 阶段一：只给对标视频，获得编号片段ZIP + SRT + 逐段台词MD
+## v0.4.1：第一阶段完整交付 ZIP（默认主交付）
+
+不再让用户分别下载视频ZIP和字幕参考ZIP。处理一条对标视频，**必须首先交付一个可下载的 `ClipFlow_完整交付.zip`**，它的内容固定为：
+
+```text
+ClipFlow_完整交付.zip
+├── segments/001_镜头.mp4, 002_镜头.mp4, ...
+├── captions.srt                  # 完整原视频时间轴，剪映导入
+├── segments_transcript.md       # 只按片段分段台词，不给每句话标时间
+├── manifest.json                # 机器可读切分清单及来源证据
+├── segments_list.csv            # 简易切分清单（编号／文件／时间范围／时长）
+├── subtitle_style_profile.json  # 对标样式待审核配置
+└── subtitle_samples/            # 联系表、原视频截图、样张索引
+    ├── subtitle_reference_contact.jpg
+    ├── cue_001_...jpg
+    └── sample_index.json
+```
+
+**台词MD格式**：每个实际导出的片段一节，标题包含 `第001段｜00:00.000—00:06.500｜6.500秒`，下一行放视频文件名，正文只有该段对应的一段台词；不为每句写起止时间。片段内没有可信识别结果时必须明确标注，禁止编造。SRT仍保留逐条字幕的时间码，不受此改动影响。
+
+**验收门禁**：ZIP采用临时文件原子写入；程序必须核实每个编号MP4非空、SRT/MD/清单/样张存在、编号连续且MD与片段数量匹配，再重新打开ZIP核对文件名单、大小与CRC；任何缺项立即报错，不能把半成品交给用户。ChatGPT输出下载链接前，还须确认实际文件路径在当前运行环境存在、可访问，并通过聊天附件/沙箱返回实际可下载文件；本地测试不能保证别的聊天账号拥有文件读取权限。
+
+历史 `numbered_segments.zip` 和 `subtitle_reference_stylekit.zip` 暂时保留，仅用于兼容已有自动化，不再作为主要交付物。Cloud ASR已配置时仍从原声生成SRT与逐段台词；无ASR且未提供已校对SRT时必须报告阻塞，不可生成虚假的文字文件。
+
+## 阶段一：对标视频 → 一个完整交付ZIP
 
 ```bash
 clipflow reference --input "对标原视频.mp4" --out "project" --model small --language zh

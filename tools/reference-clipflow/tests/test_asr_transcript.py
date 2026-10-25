@@ -67,10 +67,10 @@ def test_srt_character_estimates_split_and_document(tmp_path):
     dest = tmp_path / "segments_transcript.md"
     write_segment_document(dest,"reference.mp4",4,entries,parts,"supplied_srt","srt_estimated")
     data = dest.read_text("utf-8")
-    assert "001｜00:00.000 — 00:02.000｜2.000 秒" in data
-    assert "002｜00:02.000 — 00:04.000｜2.000 秒" in data
-    assert "台词：甲乙" in data
-    assert "台词：丙丁" in data
+    assert "第001段｜00:00.000—00:02.000｜2.000 秒" in data
+    assert "第002段｜00:02.000—00:04.000｜2.000 秒" in data
+    assert "**台词：** 甲乙" in data
+    assert "**台词：** 丙丁" in data
     assert "非本次自动语音识别" in data
     assert human_time(66.167) == "01:06.167"
 
@@ -130,7 +130,7 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
     assert (output/"captions.srt").is_file()
     assert (output/"segments_transcript.md").is_file()
     manifest=json.loads((output/"manifest.json").read_text())
-    assert manifest["version"]=="0.4.0"
+    assert manifest["version"]=="0.4.1"
     assert manifest["caption_source"]=="supplied_srt"
     assert manifest["transcript_alignment"]=="srt_estimated"
     assert "segments_transcript.md"==manifest["transcript_document"]

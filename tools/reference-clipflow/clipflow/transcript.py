@@ -39,10 +39,12 @@ def write_segment_document(path: Path, reference_name: str, duration: float,
                            source: str, alignment: str, model: str | None = None) -> None:
     if len(entries) != len(transcript_parts):
         raise ValueError("片段数量与台词列表不一致")
-    source_label = ("本地 faster-whisper ASR（原视频音频）" if source == "faster_whisper_asr"
-                    else "用户提供的 SRT（非本次自动语音识别）")
-    alignment_label = ("Whisper词级时间戳" if alignment == "word_timestamps"
-                       else "部分词级时间由ASR片段估算" if alignment == "mixed_estimated"
+    source_label = ({"faster_whisper_asr": "本地 faster-whisper ASR（原视频音频）",
+                     "cloud_whisper_asr": "已授权的云端 Whisper ASR（原视频音频）",
+                     "supplied_srt": "用户提供的 SRT（非本次自动语音识别）"}
+                    .get(source, "未知来源，请核实"))
+    alignment_label = ("Whisper词级时间戳" if alignment in ("word_timestamps", "cloud_word_timestamps")
+                       else "部分词级时间由ASR片段估算" if alignment in ("mixed_estimated", "cloud_mixed_estimated")
                        else "按SRT字幕时间估算字级位置")
     lines = [
         "# 对标视频｜逐片段时间与台词",
@@ -50,7 +52,7 @@ def write_segment_document(path: Path, reference_name: str, duration: float,
         f"- 原视频：`{reference_name.replace('`','')}`",
         f"- 总时长：{human_time(duration)}（{duration:.3f} 秒）",
         f"- 片段数量：{len(entries)}",
-        f"- 文字来源：{source_label}" + (f"；模型：`{model}`" if model and source=="faster_whisper_asr" else ""),
+        f"- 文字来源：{source_label}" + (f"；模型：`{model}`" if model and source in ("faster_whisper_asr", "cloud_whisper_asr") else ""),
         f"- 分配依据：{alignment_label}；时间均以原视频开头为 00:00.000",
         "- 校对提示：ASR可能识别错字；建议根据原声复核人名、法律术语、方言与句尾。",
         "",
@@ -61,9 +63,10 @@ def write_segment_document(path: Path, reference_name: str, duration: float,
         idx=int(entry["index"])
         start=float(entry["start"]);end=float(entry["end"])
         lines.extend([
-            f"### {idx:03d}｜{human_time(start)} — {human_time(end)}｜{end-start:.3f} 秒",
-            f"- 文件：`{entry['file']}`",
-            f"- 台词：{script if script else '（本段未识别到讲话）'}",
+            f"### 第{idx:03d}段｜{human_time(start)}—{human_time(end)}｜{end-start:.3f} 秒",
+            f"- 视频：`{entry['file']}`",
+            "",
+            f"**台词：** {script if script else '（本段未识别到讲话）'}",
             "",
         ])
     path.write_text("\n".join(lines),encoding="utf-8")
