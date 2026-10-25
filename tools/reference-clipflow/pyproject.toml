@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reference-clipflow"
+version = "0.1.0"
+description = "Two-stage reference-video segmentation, numbered watermark, SRT, and graded reassembly"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23", "opencv-python-headless>=4.6", "scipy>=1.9"]
+license = {file = "LICENSE"}
+
+[project.optional-dependencies]
+asr = ["faster-whisper>=1.1"]
+test = ["pytest>=7"]
+
+[project.scripts]
+clipflow = "clipflow.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["clipflow*"]

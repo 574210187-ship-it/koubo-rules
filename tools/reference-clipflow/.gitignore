@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.mp4
+*.mov
+*.wav
+*.m4a
+*.srt
+*_segments.zip
+*.report.json
+project/
+output/
