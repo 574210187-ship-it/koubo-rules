@@ -1,0 +1,41 @@
+{
+  "schema": "shikuang-public-release-receipt/v1",
+  "project": "实况视频单窗口",
+  "version": "v1.0.2-public-candidate",
+  "sha256": "759d6c0cffcd4187e87e6a314c77f6f109826f39e4cd01db4eb1ace36745e3db",
+  "size_bytes": 78957,
+  "package_members_verified": 30,
+  "tests": {
+    "public_release": 4,
+    "production_policy": 5,
+    "short_static": 10,
+    "workflow": 15,
+    "total_pass": 34
+  },
+  "targets": {
+    "github": {
+      "status": "PUBLIC_REPO_GIT_OBJECT_READBACK_PASS",
+      "repository": "574210187-ship-it/koubo-rules",
+      "immutable_branch": "shikuang-public-v1.0.2",
+      "commit": "01300b77caad7b4175e948cb14d318afa93fc252",
+      "zip_git_blob_sha": "925aa2949622c39399f86fb018964a14704e1893",
+      "visibility": "public",
+      "anonymous_http_get": "NOT_INDEPENDENTLY_VERIFIED_FROM_THIS_RUNTIME"
+    },
+    "chatgpt_library": {
+      "status": "READBACK_PASS",
+      "directory": "/实况/单窗口/releases/v1.0.2-public-candidate/"
+    },
+    "cos": {
+      "status": "BLOCKED_NO_GENERAL_ZIP_UPLOAD_CONNECTOR",
+      "reason": "The connected private COS tool only manages expression PNG/GIF assets."
+    }
+  },
+  "limitations": [
+    "ImageGen and FFmpeg availability must be tested in each target account",
+    "The bundled encoder remains CANDIDATE_NOT_APPROVED",
+    "Cross-account full pipeline execution has not been verified",
+    "Publication does not grant access to original owner private files"
+  ],
+  "next_release_rule": "Build + 34 regression tests + secret scan + signed ZIP verification + publish same bytes GitHub/Space (+ COS if available) + independent readback; only then update latest pointer."
+}
