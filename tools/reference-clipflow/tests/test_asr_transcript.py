@@ -129,8 +129,10 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
     assert status==0
     assert (output/"captions.srt").is_file()
     assert (output/"segments_transcript.md").is_file()
+    exported = load_srt(output/"captions.srt")
+    assert [c.text for c in exported] == ["法律咨询", "合同纠纷"]
     manifest=json.loads((output/"manifest.json").read_text())
-    assert manifest["version"]=="0.4.3"
+    assert manifest["version"]=="0.4.4"
     assert manifest["caption_source"]=="supplied_srt"
     assert manifest["transcript_alignment"]=="srt_estimated"
     assert "segments_transcript.md"==manifest["transcript_document"]
@@ -141,6 +143,7 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
         assert len(z.namelist())==len(entries)
     with zipfile.ZipFile(output/"subtitle_reference_stylekit.zip") as z:
         assert "segments_transcript.md" in z.namelist()
+        assert z.read("captions.srt") == (output/"captions.srt").read_bytes()
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -159,6 +162,7 @@ def test_reference_without_visible_subtitles_uses_fake_asr(monkeypatch,tmp_path)
     assert "合同纠纷也能咨询" in (output/"segments_transcript.md").read_text("utf-8")
     cues=load_srt(output/"captions.srt")
     assert len(cues)==2
+    assert [c.text for c in cues] == ["大家好，我是姜律师", "合同纠纷也能咨询"]
     manifest=json.loads((output/"manifest.json").read_text("utf-8"))
     assert manifest["caption_source"]=="faster_whisper_asr"
     assert manifest["transcript_alignment"]=="word_timestamps"
@@ -175,4 +179,7 @@ def test_standalone_transcribe_audio(monkeypatch,tmp_path):
     _fake_asr(monkeypatch)
     assert main(["transcribe","--input",str(audio),"--out",str(tmp_path/"asr")])==0
     assert (tmp_path/"asr/captions.srt").is_file()
-    assert "我是姜律师" in (tmp_path/"asr/transcript.md").read_text("utf-8")
+    assert [c.text for c in load_srt(tmp_path/"asr/captions.srt")] == [
+        "大家好，我是姜律师", "合同纠纷也能咨询"]
+    # The independent transcript stays verbatim: this normalization is SRT-only.
+    assert "我是姜律师。" in (tmp_path/"asr/transcript.md").read_text("utf-8")

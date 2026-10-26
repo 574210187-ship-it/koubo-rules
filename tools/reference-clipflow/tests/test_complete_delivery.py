@@ -72,11 +72,18 @@ def test_reference_srt_delivers_complete_zip(tmp_path: Path):
         assert len(clips) >= 2
         assert len(clips) == len(list((out/"segments").glob("*.mp4")))
         assert any(x.startswith("subtitle_samples/cue_") for x in names)
+        delivered_srt = z.read("captions.srt").decode("utf-8-sig")
+        assert "大家好，我是律师\n" in delivered_srt
+        assert "遇到合同纠纷，可以找我\n" in delivered_srt
+        assert "大家好，我是律师。" not in delivered_srt
+        assert "遇到合同纠纷，可以找我。" not in delivered_srt
+        assert z.read("captions.srt") == (out/"captions.srt").read_bytes()
         script = z.read("segments_transcript.md").decode("utf-8")
         assert script.count("**台词：**") == len(clips)
+        assert "大家好，我是律师。" in script  # MD keeps original words and punctuation
         assert script.count("### 第") == len(clips)
         data = json.loads(z.read("manifest.json"))
-        assert data["version"] == "0.4.3"
+        assert data["version"] == "0.4.4"
         assert data["caption_source"] == "supplied_srt"
         assert len(data["segments"]) == len(clips)
         assert all(x["duration"] <= 1.7 for x in data["segments"])

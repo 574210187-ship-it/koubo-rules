@@ -1,6 +1,6 @@
 # Reference ClipFlow（对标短视频两阶段工作流）
 
-一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.3**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
+一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.4**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传视频/音轨到 GitHub 或其他服务器。**
 
 ## 两阶段，一键完成用户确认的1–5项需求
 
@@ -38,6 +38,14 @@ Mac：`brew install ffmpeg`；Ubuntu：`sudo apt install ffmpeg fonts-noto-cjk`�
 clipflow transcribe --input "无字幕的原视频.mp4" --out "asr_only" --model small --language zh
 # 输出 asr_only/captions.srt + asr_only/transcript.md（逐条字幕时间与台词）
 ```
+
+## v0.4.4：所有SRT每条字幕末尾去标点（强制）
+
+**统一导出规则**：无论来自云端/本地Whisper，还是用户提供的已校对SRT，最终写出的 `captions.srt` 每条字幕的**每个显示行结尾**都不保留中英文句号、感叹号、问号、逗号、省略号、引号等标点（连续多个一起去掉），句内逗号等仍保留。实现于唯一 `save_srt` 写出入口，剪映可以继续直接导入，原始SRT时间码与字幕顺序保持不变。只改SRT显示文字，不改录音ASR结果、原始输入文件及 `segments_transcript.md` 的完整台词内容。
+
+示例：`大家好，我是姜律师。` → `大家好，我是姜律师`；`遇到合同纠纷怎么办？！` → `遇到合同纠纷怎么办`；`这个问题，我们来分析一下……` → `这个问题，我们来分析一下`。连续句尾符号、全角/半角标点均清理；没有识别到实质文字的纯标点字幕不会生成空白SRT条目。
+
+该规则覆盖第一阶段输出目录中的 `captions.srt`、`ClipFlow_完整交付.zip` 内的SRT、兼容包 `subtitle_reference_stylekit.zip` 内的SRT，以及独立 `clipflow transcribe` 的SRT。ZIP写完后必须再次检查里面的SRT没有句末标点，且文件可正常打开和解压。**此处理不改变画面开头截图、分段视频序号水印、字幕样张或逐段台词MD。**
 
 ## v0.4.3：截图同步显示对应视频的左上角序号
 

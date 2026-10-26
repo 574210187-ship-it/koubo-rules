@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 from clipflow.cli import (Caption, load_srt, save_srt, clock, seconds,
+                          srt_without_terminal_punctuation, validate_srt_export_punctuation,
                           choose_cuts, subtitle_chunks, drawtext_filter, media_info,
                           resolve_order, convert_srt_to_ass, main)
 
@@ -17,6 +18,51 @@ def test_srt_roundtrip(tmp_path):
     assert p.read_bytes().startswith(b"\xef\xbb\xbf")
     assert load_srt(p)==xs
     assert seconds(clock(3701.23))==3701.23
+
+
+@pytest.mark.parametrize("original, expected", [
+    ("大家好，我是姜律师。", "大家好，我是姜律师"),
+    ("遇到合同纠纷怎么办？！", "遇到合同纠纷怎么办"),
+    ("证据一定要保存!!!  ", "证据一定要保存"),
+    ("有疑问？！”", "有疑问"),
+    ("今天讲讲合同纠纷……", "今天讲讲合同纠纷"),
+    ("这里有3.14万元。", "这里有3.14万元"),
+    ("我们可以讨论，先看证据；", "我们可以讨论，先看证据"),
+    ("先别着急～", "先别着急"),
+    ("证据如下：", "证据如下"),
+    ("没问题", "没问题"),
+])
+def test_srt_terminal_punctuation_normalizer(original, expected):
+    assert srt_without_terminal_punctuation(original) == expected
+
+
+def test_srt_writing_cleans_each_line_and_preserves_timestamps_and_source(tmp_path):
+    captions = [
+        Caption(.20, 1.10, "第一行保留，逗号。\n第二行去感叹号！！"),
+        Caption(1.30, 2.40, "里面保留3.14这个小数，句尾去省略号……"),
+    ]
+    path = tmp_path / "captions.srt"
+    save_srt(captions, path)
+    written = path.read_text("utf-8-sig")
+    assert "00:00:00,200 --> 00:00:01,100" in written
+    assert "00:00:01,300 --> 00:00:02,400" in written
+    assert "第一行保留，逗号\n第二行去感叹号" in written
+    assert "里面保留3.14这个小数，句尾去省略号" in written
+    assert "。" not in written and "！" not in written and "…" not in written
+    assert captions[0].text.endswith("！！")  # source text must stay untouched
+    validate_srt_export_punctuation(written)
+
+
+def test_srt_empty_punctuation_only_cues_are_skipped(tmp_path):
+    path = tmp_path / "punct.srt"
+    save_srt([Caption(0,1,"？！！"), Caption(1,2,"后面有文字。")],path)
+    output = path.read_text("utf-8-sig")
+    assert output.startswith("1\n00:00:01,000 --> 00:00:02,000\n后面有文字\n")
+    assert "2\n" not in output
+    with pytest.raises(ValueError,match="没有有效字幕"):
+        save_srt([Caption(0,1,"......")],tmp_path/"empty.srt")
+    with pytest.raises(RuntimeError,match="字幕行结尾存在标点"):
+        validate_srt_export_punctuation("1\n00:00:00,000 --> 00:00:01,000\n不合规。\n")
 
 
 def test_cut_boundaries_sentence_priority_and_maximum():

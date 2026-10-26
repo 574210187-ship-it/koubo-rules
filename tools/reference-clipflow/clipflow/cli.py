@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+import unicodedata
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Iterable
@@ -119,13 +120,50 @@ def load_srt(path: Path) -> list[Caption]:
     return out
 
 
+def srt_without_terminal_punctuation(text: str) -> str:
+    """Remove punctuation at the end of EACH displayed subtitle line.
+
+    Operates only on exported SRT text, not the ASR result or per-segment MD.
+    Keep commas and punctuation within a line; retain numbers/decimals and
+    original cue timings. Unicode punctuation includes Chinese/ASCII marks,
+    repeated ellipses and closing quotes. Wave dashes are also end markers.
+    """
+    cleaned: list[str] = []
+    for line in text.splitlines():
+        line = line.rstrip()
+        while line and (unicodedata.category(line[-1]).startswith("P")
+                        or line[-1] in "~～"):
+            line = line[:-1].rstrip()
+        if line:
+            cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def save_srt(captions: Iterable[Caption], path: Path) -> None:
-    captions = list(captions)
-    if not captions:
-        raise ValueError("没有字幕可写出")
+    """Export UTF-8 BOM SRT without sentence-ending punctuation in cues."""
+    prepared = [(c, srt_without_terminal_punctuation(c.text)) for c in captions]
+    prepared = [(c, text) for c, text in prepared if text]
+    if not prepared:
+        raise ValueError("没有有效字幕可写出（句末标点清理后为空）")
     path.write_text("\n".join(
-        f"{i}\n{clock(c.start)} --> {clock(c.end)}\n{c.text}\n"
-        for i, c in enumerate(captions, 1)), encoding="utf-8-sig")
+        f"{i}\n{clock(c.start)} --> {clock(c.end)}\n{text}\n"
+        for i, (c, text) in enumerate(prepared, 1)), encoding="utf-8-sig")
+
+
+def validate_srt_export_punctuation(srt_text: str) -> None:
+    """Reject a delivery SRT with punctuation at the end of a subtitle line."""
+    cue_count = 0
+    for block in re.split(r"\n\s*\n", srt_text.strip()):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        timestamp = next((i for i, line in enumerate(lines) if "-->" in line), -1)
+        if timestamp < 0 or timestamp + 1 >= len(lines):
+            raise RuntimeError("交付SRT包含无效或空白字幕块")
+        for line in lines[timestamp+1:]:
+            if line != srt_without_terminal_punctuation(line):
+                raise RuntimeError("交付SRT字幕行结尾存在标点符号，拒绝交付")
+        cue_count += 1
+    if cue_count == 0:
+        raise RuntimeError("交付SRT为空，拒绝交付")
 
 
 def chunks_by_char(text: str, start: float, end: float, max_chars: int = 16) -> list[Caption]:
@@ -326,6 +364,7 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
                 or row.get("still_watermark_scheme") != "C"
                 or row.get("still_has_sequence_watermark") is not True):
             raise RuntimeError(f"第{number}段截图缺少对应序号水印验证记录，拒绝交付")
+    validate_srt_export_punctuation((out/"captions.srt").read_text("utf-8-sig"))
     md = (out/"segments_transcript.md").read_text("utf-8")
     for item in entries:
         if f"### 第{int(item['index']):03d}段｜" not in md:
@@ -346,6 +385,7 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
             corrupt = z.testzip()
             if corrupt:
                 raise RuntimeError(f"交付ZIP内部成员校验失败: {corrupt}")
+            validate_srt_export_punctuation(z.read("captions.srt").decode("utf-8-sig"))
             for name, path in members.items():
                 if z.getinfo(name).file_size != path.stat().st_size:
                     raise RuntimeError(f"交付ZIP内部文件长度不一致: {name}")
@@ -431,7 +471,7 @@ def make_reference(args) -> None:
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
                            args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.3","reference_filename":source.name,
+    manifest={"version":"0.4.4","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
