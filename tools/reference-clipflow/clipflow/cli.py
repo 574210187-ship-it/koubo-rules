@@ -318,6 +318,14 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
     for name, path in members.items():
         if not path.is_file() or path.stat().st_size <= 0:
             raise RuntimeError(f"交付文件不存在或为空: {name}")
+    # The image must carry the same visible three-digit number as the MP4.
+    # Check both in-memory segment metadata and the ZIP-embedded manifest.
+    for row in entries:
+        number = f"{int(row['index']):03d}"
+        if (row.get("still_sequence_number") != number
+                or row.get("still_watermark_scheme") != "C"
+                or row.get("still_has_sequence_watermark") is not True):
+            raise RuntimeError(f"第{number}段截图缺少对应序号水印验证记录，拒绝交付")
     md = (out/"segments_transcript.md").read_text("utf-8")
     for item in entries:
         if f"### 第{int(item['index']):03d}段｜" not in md:
@@ -347,6 +355,10 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
             for row in check["segments"]:
                 if row.get("still_image") != "segment_stills/" + Path(row["file"]).stem + ".jpg":
                     raise RuntimeError("清单内截图与MP4编号无法一一对应")
+                if (row.get("still_sequence_number") != f"{int(row['index']):03d}"
+                        or row.get("still_watermark_scheme") != "C"
+                        or row.get("still_has_sequence_watermark") is not True):
+                    raise RuntimeError("清单内截图编号水印记录不匹配")
             if sum(name.startswith("segment_stills/") and name.endswith(".jpg")
                    for name in z.namelist()) != len(entries):
                 raise RuntimeError("截图张数与片段数量不一致")
@@ -405,7 +417,9 @@ def make_reference(args) -> None:
         if actual["duration"] > 10.02:
             raise RuntimeError(f"片段 {filename} 实际超过10秒: {actual['duration']:.3f}")
         still_target = out/"segment_stills"/(Path(filename).stem + ".jpg")
-        still_info = export_segment_still(source, start, end, still_target)
+        still_info = export_segment_still(
+            source, start, end, still_target, number=i,
+            watermark_filter=drawtext_filter(i, info, font))
         entries.append({"index":i,"file":filename,"start":start,"end":end,
                         "duration":round(end-start,3),"encoded_duration":round(actual["duration"],3),
                         "scene_label":f"镜头{i:03d}","role":"待确认", **still_info})
@@ -417,7 +431,7 @@ def make_reference(args) -> None:
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
                            args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.2","reference_filename":source.name,
+    manifest={"version":"0.4.3","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},

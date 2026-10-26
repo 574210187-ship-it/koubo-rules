@@ -1,15 +1,16 @@
-"""Pick one clear, unmodified reference frame from each segment's opening frames.
+"""Select a clear reference opening frame, then draw its video-matching C number.
 
-The image is taken from the ORIGINAL reference MP4 rather than the numbered
-re-encode, so it does not contain ClipFlow's added sequence watermark.  Original
-hard-coded subtitles/visual elements remain.  This is a technical ranking of
-sharpness, exposure and rapid changes, not an infallible judgment of facial
-expression or photographic aesthetics.
+Frame selection samples the ORIGINAL reference MP4 to avoid compression artifacts
+and pre-existing added watermarks from the re-encoded numbered segment. The
+selected frame is left at original resolution; only the same sequence overlay
+as the numbered MP4 is added. Existing subtitles and picture are preserved.
+Selection is a technical sharpness/exposure estimate, not face-expression QA.
 """
 from __future__ import annotations
 
 import math
 from pathlib import Path
+import subprocess
 
 
 def _frame_score(frame, previous=None) -> tuple[bool, float]:
@@ -106,21 +107,46 @@ def select_opening_frame(source: Path, start: float, end: float,
 
 
 def export_segment_still(source: Path, start: float, end: float,
-                         target: Path) -> dict:
-    """Write original-resolution JPEG, return auditable selection metadata."""
+                         target: Path, *, number: int,
+                         watermark_filter: str) -> dict:
+    """Write an original-size JPEG with the *same* C-style number as its MP4.
+
+    ``watermark_filter`` must be produced with cli.drawtext_filter(number,...)
+    (the same filter used for the video). FFmpeg overlays the number on the
+    actually selected decoded opening frame, not on a separate/exact-cut seek.
+    An overlay failure is fatal: never deliver an unnumbered JPEG as success.
+    """
     import cv2
 
+    if type(number) is not int or not (1 <= number <= 999):
+        raise ValueError("截图编号必须是001至999的正整数")
+    if not watermark_filter or "drawtext=" not in watermark_filter:
+        raise ValueError("截图缺少与视频相同的C方案序号滤镜")
     frame, stamp, offset, frame_index = select_opening_frame(source, start, end)
+    height, width = frame.shape[:2]
     target.parent.mkdir(parents=True, exist_ok=True)
-    params = [cv2.IMWRITE_JPEG_QUALITY, 94]
-    if hasattr(cv2, "IMWRITE_JPEG_OPTIMIZE"):
-        params += [cv2.IMWRITE_JPEG_OPTIMIZE, 1]
-    if not cv2.imwrite(str(target), frame, params):
-        raise RuntimeError(f"无法写出分段截图：{target}")
-    if not target.is_file() or target.stat().st_size <= 0:
-        raise RuntimeError(f"截图为空：{target}")
+    target.unlink(missing_ok=True)
+    try:
+        proc = subprocess.run([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "rawvideo", "-pixel_format", "bgr24",
+            "-video_size", f"{width}x{height}", "-framerate", "1", "-i", "pipe:0",
+            "-vf", watermark_filter, "-frames:v", "1",
+            "-q:v", "2", "-f", "image2", "-update", "1", str(target)
+        ], input=frame.tobytes(), capture_output=True, timeout=60, check=False)
+        if proc.returncode != 0 or not target.is_file() or target.stat().st_size <= 0:
+            raise RuntimeError("分段截图序号叠加失败：" + proc.stderr.decode("utf-8", "replace")[-400:])
+        rendered = cv2.imread(str(target))
+        if rendered is None or rendered.shape[:2] != (height, width):
+            raise RuntimeError("分段截图分辨率或解码校验失败")
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
     return {"still_image": f"segment_stills/{target.name}",
             "still_source_time_seconds": round(stamp, 3),
             "still_offset_seconds": round(offset, 3),
             "still_source_frame_index": frame_index,
-            "still_source": "original_video_without_added_sequence_watermark"}
+            "still_sequence_number": f"{number:03d}",
+            "still_watermark_scheme": "C",
+            "still_has_sequence_watermark": True,
+            "still_source": "original_video_opening_frame_with_clipflow_C_sequence_overlay"}

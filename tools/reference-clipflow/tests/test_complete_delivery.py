@@ -76,13 +76,16 @@ def test_reference_srt_delivers_complete_zip(tmp_path: Path):
         assert script.count("**台词：**") == len(clips)
         assert script.count("### 第") == len(clips)
         data = json.loads(z.read("manifest.json"))
-        assert data["version"] == "0.4.2"
+        assert data["version"] == "0.4.3"
         assert data["caption_source"] == "supplied_srt"
         assert len(data["segments"]) == len(clips)
         assert all(x["duration"] <= 1.7 for x in data["segments"])
         for segment in data["segments"]:
             name = "segment_stills/" + Path(segment["file"]).stem + ".jpg"
             assert segment["still_image"] == name
+            assert segment["still_sequence_number"] == f"{segment['index']:03d}"
+            assert segment["still_watermark_scheme"] == "C"
+            assert segment["still_has_sequence_watermark"] is True
             assert segment["still_offset_seconds"] <= .6 + .002
             assert segment["start"] <= segment["still_source_time_seconds"] < segment["end"]
             encoded = np.frombuffer(z.read(name), dtype=np.uint8)
@@ -132,3 +135,28 @@ def test_missing_single_still_blocks_delivery(tmp_path: Path):
     with pytest.raises(RuntimeError, match="交付文件不存在或为空"):
         build_complete_delivery_zip(folder,entries)
     assert not (folder/"ClipFlow_完整交付.zip").exists()
+
+
+def test_mismatched_still_number_blocks_delivery(tmp_path: Path):
+    """Even a nonempty JPG must be rejected if its sequence watermark disagrees."""
+    root = tmp_path
+    for name in ("captions.srt", "segments_transcript.md", "manifest.json",
+                 "segments_list.csv", "subtitle_style_profile.json"):
+        (root/name).write_text("ready", encoding="utf-8")
+    (root/"segments_transcript.md").write_text(
+        "### 第001段｜00:00.000—00:01.000｜1.000 秒\n**台词：** 你好", encoding="utf-8")
+    (root/"segments").mkdir()
+    (root/"segments/001_镜头.mp4").write_bytes(b"fake-video-for-unit-test")
+    (root/"segment_stills").mkdir()
+    (root/"segment_stills/001_镜头.jpg").write_bytes(b"fake-image-for-unit-test")
+    (root/"subtitle_samples").mkdir()
+    (root/"subtitle_samples/subtitle_reference_contact.jpg").write_bytes(b"contact")
+    (root/"subtitle_samples/cue_001_mock.jpg").write_bytes(b"cue")
+    entry = {"index":1,"file":"001_镜头.mp4", "start":0., "end":1.,
+             "still_image":"segment_stills/001_镜头.jpg",
+             "still_sequence_number":"002", "still_watermark_scheme":"C",
+             "still_has_sequence_watermark":True}
+    (root/"manifest.json").write_text(json.dumps({"segments":[entry]}), encoding="utf-8")
+    with pytest.raises(RuntimeError,match="截图缺少对应序号水印验证记录"):
+        build_complete_delivery_zip(root,[entry])
+    assert not (root/"ClipFlow_完整交付.zip").exists()
