@@ -1,16 +1,25 @@
-# 实况视频单窗口｜v1.0.2-public-candidate
+# 实况视频单窗口 · v1.3.2 候选
 
-**公开跨账号入口**：https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.0.2/projects/shikuang-singlewindow/START_HERE.md
+这是一套可执行但非自带AI视觉推理的三阶段工具：00 ChatGPT视觉分析并给用户确认，01 ChatGPT真实ImageGen生成3至4张RGBA文字层供选择，02 FFmpeg把所选图原位静态覆盖到主视频并交付1080P MP4与单MP4的ZIP。
 
-完整执行合同、REVIEW/AUTO模式、阶段状态/返工程序见 `START_HERE.md`、`rules/`、`src/`、`config/`。正式启动使用公开ZIP+SHA256核验。无需原账号登录即可从公开GitHub查看和下载；实际执行视频和 ImageGen 仍需目标账号的工具与授权。
+## 对话入口
+- 本账号：阅读 `LOCAL_START.md` 直接复制；资料库 `/实况/单窗口/`。
+- 其他账号：阅读 `EXTERNAL_START.md` 直接复制；使用公开GitHub固定ZIP，若不能读取网络资源则用户上传此ZIP附件。
 
-### 内容
-- `src/shikuang.py`：状态机、路由、门禁、返工、恢复、哈希和引擎调用。
-- `src/prepare_00.py`、`src/media_probe.py`：原素材技术分析/只读探针。
-- `src/short_static_policy.py`：原速连续截取+三秒以内+静态文字硬性门禁。
-- `rules/00~04`：语义/版式分析、ImageGen RGBA文字层、视频制作、验收和跨阶段复用规范。
-- `config/routes.json`：两种输入自动路由；`config/engines.json`内视频ZIP仍为**候选未批准**，不得装作正式自动上线。
-- `tools/sync_publish.py`：GitHub和通用COS发布脚本（需要合法目标环境凭据）；当前ChatGPT资料库通过文件工具单独同步。
-- `tests/`：测试工程；不包含用户真实媒体、现场生成素材或成品。
+## CLI（自动管理状态与文件，不自行绘图）
+```
+python src/shikuang.py init --run-dir runs/001 --main <主视频> --reference <对标视频或图片>
+python src/shikuang.py analyze --run-dir runs/001 --analysis 00.json
+python src/shikuang.py approve-00 --run-dir runs/001
+python src/shikuang.py options --run-dir runs/001 --png A.png --imagegen-id imagegen:<真实ID_A> --png B.png --imagegen-id imagegen:<真实ID_B> --png C.png --imagegen-id imagegen:<真实ID_C>
+python src/shikuang.py select --run-dir runs/001 --index 2
+python src/shikuang.py render --run-dir runs/001
+```
+- 用户选中图已在当前执行环境可访问时，`--index` 直接复用已确认候选，不重复上传。
+- 用户确实重新上传修改图时，可以 `select --png <确实存在的新文件>`。
+- 错误保持当前阶段，不能标记成功；新版本输出不覆盖上一版本。
 
-技术验证：`python -m unittest discover -s tests -v`、`python release_verify.py <ZIP路径>`。说明详见 `distribution/PUBLIC_USAGE.md`。
+## 验证与限制
+`python -m unittest discover -s tests -v`；`python verify.py <本ZIP路径>`。
+技术测试包含使用FFmpeg真实编码和完全解码的测试素材，但其他账号访问ImageGen/源视频/FFmpeg仍依赖其权限与环境；复制指令不能授权工具。
+当前版本默认保持**源视频全长、原速、原声**，由用户明确提出更短时长时才按需求变更（使用独立明确批准的执行规则）。
