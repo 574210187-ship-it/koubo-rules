@@ -1,4 +1,4 @@
-# 实况视频单窗口｜精简版 v1.3.0 候选
+# 实况视频单窗口｜精简版 v1.3.1 候选
 
 启动口令：**启动实况 REVIEW**（默认）或 **启动实况 AUTO**。
 
@@ -14,6 +14,6 @@ REVIEW：00等用户通过、01等用户选图。AUTO：00可自动进入01，�
 
 执行命令及最简示例见 `README.md`。原v1.2旧版继续作为独立历史存档，不随包内复制。
 
-公开下载入口（固定版本）：https://github.com/574210187-ship-it/koubo-rules/tree/shikuang-public-v1.3.0/projects/shikuang-singlewindow
+公开下载入口（固定版本）：https://github.com/574210187-ship-it/koubo-rules/tree/shikuang-public-v1.3.1/projects/shikuang-singlewindow
 
-完整启动ZIP：https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.3.0/projects/shikuang-singlewindow/releases/shikuang-simple-v1.3.0-candidate.zip
+完整启动ZIP：https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.3.1/projects/shikuang-singlewindow/releases/shikuang-simple-v1.3.1-candidate.zip
