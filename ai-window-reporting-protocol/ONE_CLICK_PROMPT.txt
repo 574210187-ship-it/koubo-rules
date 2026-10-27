@@ -1,0 +1,1 @@
+请立即读取并严格执行 https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/main/ai-window-reporting-protocol/START.md 。目标飞书多维表：<飞书多维表链接>；目标子表：汇报项目；table_id：<汇报项目table_id>。本轮结束、达到汇报点、发生问题、问题恢复或需要更正时，必须按规范新增一行，写后回读并返回record_id；不得覆盖旧行，不得把多次汇报塞进同一个执行记录单元格。若无法读取规范或无法写表，不得声称成功，必须返回具体错误和完整待代写字段。

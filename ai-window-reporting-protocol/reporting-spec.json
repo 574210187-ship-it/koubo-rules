@@ -1,0 +1,52 @@
+{
+  "protocol": "ai-window-reporting",
+  "version": "1.0.0",
+  "target_table_name": "汇报项目",
+  "write_mode": "append_only",
+  "row_atomicity": "one_window_run_or_one_problem_per_row",
+  "required_fields": [
+    "/提交日期",
+    "/是否启动",
+    "任务名称",
+    "工具",
+    "所属项目",
+    "电脑名称",
+    "类型",
+    "进度",
+    "阶段",
+    "描述",
+    "执行记录"
+  ],
+  "optional_if_known": [
+    "项目ID",
+    "机器ID",
+    "项目本地根目录"
+  ],
+  "type_values": [
+    "结果",
+    "问题故障"
+  ],
+  "result_completion_values": [
+    "完成",
+    "阶段性完成",
+    "未完成",
+    "问题已恢复"
+  ],
+  "validation": {
+    "new_row_for_every_report": true,
+    "allow_overwrite_old_row": false,
+    "allow_multiple_reports_in_execution_record": false,
+    "completion_requires_evidence": true,
+    "problem_requires_stable_code": true,
+    "problem_requires_user_action_field": true,
+    "write_requires_readback": true
+  },
+  "secrets": {
+    "allow_in_repository": false,
+    "examples": [
+      "OAuth token",
+      "Webhook key",
+      "Cookie"
+    ]
+  }
+}
