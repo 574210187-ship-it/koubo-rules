@@ -4,13 +4,17 @@ Frame selection samples the ORIGINAL reference MP4 to avoid compression artifact
 and pre-existing added watermarks from the re-encoded numbered segment. The
 selected frame is left at original resolution; only the same sequence overlay
 as the numbered MP4 is added. Existing subtitles and picture are preserved.
-Selection is a technical sharpness/exposure estimate, not face-expression QA.
+Selection prioritizes the fewest recognized original-frame characters among the
+first ten decoded frames; dark/flash/unusable frames are discarded first.
+OCR confidence is an estimate, not a visual proof of zero text.
 """
 from __future__ import annotations
 
 import math
 from pathlib import Path
 import subprocess
+
+from .still_text import count_visible_text, ocr_language
 
 
 def _frame_score(frame, previous=None) -> tuple[bool, float]:
@@ -49,13 +53,14 @@ def _frame_score(frame, previous=None) -> tuple[bool, float]:
 
 
 def select_opening_frame(source: Path, start: float, end: float,
-                         *, max_window_seconds: float = .6,
-                         max_frames: int = 20):
+                         *, max_frames: int = 10,
+                         include_details: bool = False):
     """Return (original BGR pixels, source-time, offset-in-clip, frame number).
 
-    Samples the first <=0.6 seconds / <=20 source frames (whichever is smaller).
-    Each candidate is an actual decoded original frame with no enhancement or
-    content edits. Cannot guarantee open eyes or a particular mouth position.
+    Samples only the first <=10 actual sequential decoded source frames.
+    Black/flash frames are filtered first; then choose least OCR-visible text.
+    Original picture has no added watermark during selection. Cannot guarantee
+    open eyes or a particular mouth position.
     """
     import cv2
 
@@ -73,9 +78,9 @@ def select_opening_frame(source: Path, start: float, end: float,
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if total > 0 and start_frame >= total:
             raise RuntimeError(f"片段起点超出原片帧数: {start:.3f}s")
-        window_frames = max(1, min(max_frames,
-                                   math.ceil(max_window_seconds * fps),
-                                   duration_frames))
+        if max_frames != 10:
+            raise ValueError("每段只允许从前10帧选择截图")
+        window_frames = min(10, duration_frames)
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         candidates = []
         previous_gray = None
@@ -96,12 +101,29 @@ def select_opening_frame(source: Path, start: float, end: float,
             previous_gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         if not candidates:
             raise RuntimeError(f"未能解码片段开头画面：{start:.3f}—{end:.3f}s")
-        # Among equally clean shots, prefer frames closer to the segment start.
-        valid, rank, relative, frame = max(candidates,
-                                           key=lambda q: (int(q[0]), q[1], -q[2]))
+        usable = [q for q in candidates if q[0]]
+        if not usable:
+            raise RuntimeError("前10帧全部属于黑场、闪白或严重曝光异常，无法选有效截图")
+        lang = ocr_language()  # fail clearly if Chinese OCR is not installed
+        rankings = []
+        for valid, rank, relative, pixels in usable:
+            count, coverage = count_visible_text(pixels, language=lang)
+            rankings.append((count, coverage, -rank, relative, pixels))
+        count, coverage, _, relative, frame = min(rankings,
+                                key=lambda q:(q[0],q[1],q[2],q[3]))
+        selection = {
+            "selected_relative_frame": relative,
+            "visible_text_characters": count,
+            "visible_text_area_ratio": coverage,
+            "ocr_language": lang,
+            "frames_examined": len(candidates),
+            "usable_frames": len(usable),
+            "selection_policy": "fewest_OCR_characters_then_area_then_clarity_first_10_frames",
+        }
         global_index = start_frame + relative
         stamp = global_index / fps
-        return frame, stamp, max(0.0, stamp - start), global_index
+        result = (frame, stamp, max(0.0, stamp - start), global_index)
+        return result + (selection,) if include_details else result
     finally:
         cap.release()
 
@@ -122,7 +144,8 @@ def export_segment_still(source: Path, start: float, end: float,
         raise ValueError("截图编号必须是001至999的正整数")
     if not watermark_filter or "drawtext=" not in watermark_filter:
         raise ValueError("截图缺少与视频相同的C方案序号滤镜")
-    frame, stamp, offset, frame_index = select_opening_frame(source, start, end)
+    frame, stamp, offset, frame_index, selection = select_opening_frame(
+        source, start, end, include_details=True)
     height, width = frame.shape[:2]
     target.parent.mkdir(parents=True, exist_ok=True)
     target.unlink(missing_ok=True)
@@ -146,7 +169,14 @@ def export_segment_still(source: Path, start: float, end: float,
             "still_source_time_seconds": round(stamp, 3),
             "still_offset_seconds": round(offset, 3),
             "still_source_frame_index": frame_index,
+            "still_offset_frame_index": selection["selected_relative_frame"],
             "still_sequence_number": f"{number:03d}",
+            "still_text_characters": selection["visible_text_characters"],
+            "still_text_area_ratio": selection["visible_text_area_ratio"],
+            "still_ocr_language": selection["ocr_language"],
+            "still_candidate_frames": selection["frames_examined"],
+            "still_usable_frames": selection["usable_frames"],
+            "still_selection_policy": selection["selection_policy"],
             "still_watermark_scheme": "C",
             "still_has_sequence_watermark": True,
             "still_source": "original_video_opening_frame_with_clipflow_C_sequence_overlay"}

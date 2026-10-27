@@ -82,8 +82,8 @@ def test_multicolor_runs_must_match_caption_text(tmp_path):
 def test_reference_phase_produces_samples_and_pending_profile(tmp_path):
     input_video=tmp_path/'reference.mp4'
     subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i',
-                    'color=c=blue:s=160x288:r=12:d=2',
-                    '-f','lavfi','-i','sine=frequency=520:duration=2',
+                    'color=c=blue:s=160x288:r=12:d=4.2',
+                    '-f','lavfi','-i','sine=frequency=520:duration=4.2',
                     '-c:v','libx264','-c:a','aac','-shortest',str(input_video)],
                    check=True)
     captions=tmp_path/'captions.srt'

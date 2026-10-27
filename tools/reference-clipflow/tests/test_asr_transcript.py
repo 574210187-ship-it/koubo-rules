@@ -116,8 +116,8 @@ def test_recognize_missing_word_timestamps_explicitly_marks_estimate(monkeypatch
 def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
     video=tmp_path/"original.mp4"
     subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y",
-                    "-f","lavfi","-i","color=c=navy:s=160x288:r=12:d=2.5",
-                    "-f","lavfi","-i","sine=frequency=880:sample_rate=16000:duration=2.5",
+                    "-f","lavfi","-i","color=c=gray:s=160x288:r=12:d=6.4",
+                    "-f","lavfi","-i","sine=frequency=880:sample_rate=16000:duration=6.4",
                     "-shortest","-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p",
                     "-c:a","aac",str(video)],check=True)
     srt=tmp_path/"input.srt"
@@ -125,19 +125,19 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
                    "2\n00:00:01,300 --> 00:00:02,300\n合同纠纷。\n",encoding="utf-8")
     output=tmp_path/"processed"
     status=main(["reference","--input",str(video),"--out",str(output),
-                 "--srt",str(srt),"--max-seconds","2.0","--preset","ultrafast"])
+                 "--srt",str(srt),"--max-seconds","8.0","--preset","ultrafast"])
     assert status==0
     assert (output/"captions.srt").is_file()
     assert (output/"segments_transcript.md").is_file()
     exported = load_srt(output/"captions.srt")
     assert [c.text for c in exported] == ["法律咨询", "合同纠纷"]
     manifest=json.loads((output/"manifest.json").read_text())
-    assert manifest["version"]=="0.4.4"
+    assert manifest["version"]=="0.4.5"
     assert manifest["caption_source"]=="supplied_srt"
     assert manifest["transcript_alignment"]=="srt_estimated"
     assert "segments_transcript.md"==manifest["transcript_document"]
     entries=manifest["segments"]
-    assert all(x["duration"]<=2.0 for x in entries)
+    assert all(x["duration"]<=8.0 for x in entries)
     assert "法律咨询" in "".join(x["transcript"] for x in entries)
     with zipfile.ZipFile(output/"numbered_segments.zip") as z:
         assert len(z.namelist())==len(entries)
@@ -151,14 +151,14 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
 def test_reference_without_visible_subtitles_uses_fake_asr(monkeypatch,tmp_path):
     video=tmp_path/"bare_video.mp4"
     subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y",
-                    "-f","lavfi","-i","color=c=gray:s=160x288:r=12:d=2.5",
-                    "-f","lavfi","-i","sine=frequency=880:sample_rate=16000:duration=2.5",
+                    "-f","lavfi","-i","color=c=gray:s=160x288:r=12:d=6.4",
+                    "-f","lavfi","-i","sine=frequency=880:sample_rate=16000:duration=6.4",
                     "-shortest","-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p",
                     "-c:a","aac",str(video)],check=True)
     _fake_asr(monkeypatch)
     output=tmp_path/"processed"
     assert main(["reference","--input",str(video),"--out",str(output),
-                 "--max-seconds","2.0","--preset","ultrafast"])==0
+                 "--max-seconds","8.0","--preset","ultrafast"])==0
     assert "合同纠纷也能咨询" in (output/"segments_transcript.md").read_text("utf-8")
     cues=load_srt(output/"captions.srt")
     assert len(cues)==2

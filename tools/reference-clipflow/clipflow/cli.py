@@ -26,6 +26,9 @@ from typing import Iterable
 from .subtitle_style import (create_reference_samples, create_style_template,
                              read_style_profile, convert_matched_ass)
 from .asr import TimedText, recognize, estimate_character_timing
+from .cut_planner import (plan_sentence_cuts, verified_sentence_ends,
+                          NoFeasibleSegmentation, MIN_SECONDS_EXCLUSIVE,
+                          MAX_SECONDS_INCLUSIVE)
 from .transcript import (assign_words_to_segments, write_segment_document,
                          write_whole_transcript, human_time)
 from .stills import export_segment_still
@@ -230,45 +233,14 @@ def detect_scenes(path: Path, duration: float, *, step: float=0.23,
 
 
 def choose_cuts(duration: float, shots: list[float], captions: list[Caption],
-                maximum: float=9.8, snap_tolerance: float=1.0) -> list[float]:
-    """Prefer whole phrases; never return a segment wider than `maximum`."""
-    if maximum <= 0 or maximum > 10:
-        raise ValueError("--max-seconds 必须 >0 且 <=10")
-    sentence_ends = sorted(set(round(c.end,3) for c in captions
-                               if .1 <= c.end < duration-.1))
-    fixed = [0.0]
-    for raw in sorted(shots):
-        if raw <= fixed[-1]+.4 or raw >= duration-.15:
-            continue
-        candidates = [t for t in sentence_ends if abs(t-raw) <= snap_tolerance
-                      and t > fixed[-1]+.4]
-        cut = min(candidates, key=lambda t: abs(t-raw)) if candidates else raw
-        if cut > fixed[-1]+.4:
-            fixed.append(cut)
-    fixed.append(duration)
-    fixed = sorted(set(fixed))
-    result = [0.0]
-    for boundary in fixed[1:]:
-        while boundary-result[-1] > maximum+1e-7:
-            limit = result[-1]+maximum
-            ends = [x for x in sentence_ends if result[-1]+1.3 <= x <= limit]
-            if ends:
-                best = max(ends)
-            else:
-                # A sentence longer than the hard limit must be cut anyway.
-                best = limit
-            if best <= result[-1]+.2:
-                best = limit
-            result.append(round(best,3))
-        if boundary-result[-1] > .08:
-            result.append(round(boundary,3))
-        else:
-            result[-1] = round(boundary,3)
-    if abs(result[-1]-duration) > .01:
-        result.append(round(duration,3))
-    if any(b-a > maximum+.002 for a,b in zip(result,result[1:])):
-        raise AssertionError("超时长段未正确处理")
-    return result
+                maximum: float=MAX_SECONDS_INCLUSIVE,
+                snap_tolerance: float=1.0) -> list[float]:
+    """Legacy entrypoint, now subject to the strict phrase/3–8s contract.
+
+    snap_tolerance is retained only for backward API compatibility; nearest
+    real scene changes are integrated in the global planner scoring function.
+    """
+    return plan_sentence_cuts(duration, shots, captions, maximum=maximum)
 
 
 def ffmpeg_font(family: str="DejaVu Sans:style=Bold") -> str:
@@ -330,6 +302,16 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
         raise RuntimeError("没有拆分片段，不能生成完整交付ZIP")
     if [int(x["index"]) for x in entries] != list(range(1, len(entries)+1)):
         raise RuntimeError("片段编号不连续，不能交付")
+    for row in entries:
+        duration=float(row["end"])-float(row["start"])
+        encoded=float(row.get("encoded_duration",duration))
+        if not (MIN_SECONDS_EXCLUSIVE < duration <= MAX_SECONDS_INCLUSIVE + 1e-8
+                and MIN_SECONDS_EXCLUSIVE < encoded <= MAX_SECONDS_INCLUSIVE + 1e-4):
+            raise RuntimeError(f"第{int(row['index']):03d}段时长不在(3,8]秒内，禁止交付")
+        if (row.get("still_candidate_frames",0)>10
+                or row.get("still_selection_policy") !=
+                "fewest_OCR_characters_then_area_then_clarity_first_10_frames"):
+            raise RuntimeError("截图未验证前10帧最少OCR文字规则，拒绝交付")
     mandatory = ["captions.srt", "segments_transcript.md", "manifest.json",
                  "segments_list.csv", "subtitle_style_profile.json"]
     members: dict[str, Path] = {}
@@ -444,7 +426,14 @@ def make_reference(args) -> None:
     create_style_template(profile_template,info["width"],info["height"])
     print(f"[subtitle style] 已生成对标截图 {reference_samples}; 样式待人工/视觉模型核实: {profile_template}",flush=True)
     shots = detect_scenes(source,info["duration"],step=args.scene_step)
-    cuts = choose_cuts(info["duration"],shots,captions,maximum=args.max_seconds)
+    try:
+        cuts = plan_sentence_cuts(info["duration"], shots, captions, words,
+                                  maximum=args.max_seconds)
+    except NoFeasibleSegmentation as exc:
+        conflict = out/"cut_conflict.json"
+        conflict.write_text(json.dumps(exc.diagnostic(),ensure_ascii=False,indent=2),
+                            encoding="utf-8")
+        raise RuntimeError(f"切分HOLD：{exc.reason}；已记录冲突：{conflict}") from exc
     font = str(args.font_file) if args.font_file else ffmpeg_font()
     clip_dir = out/"segments"
     clip_dir.mkdir(exist_ok=True)
@@ -454,8 +443,10 @@ def make_reference(args) -> None:
         target=clip_dir/filename
         export_reference_segment(source,target,start,end,info,i,font,args.crf,args.preset)
         actual=media_info(target)
-        if actual["duration"] > 10.02:
-            raise RuntimeError(f"片段 {filename} 实际超过10秒: {actual['duration']:.3f}")
+        if not (MIN_SECONDS_EXCLUSIVE < actual["duration"] <= MAX_SECONDS_INCLUSIVE + 1e-4):
+            raise RuntimeError(
+                f"片段 {filename} 编码后时长不满足>3且<=8秒："
+                f"{actual['duration']:.3f}s；拒绝完整ZIP交付")
         still_target = out/"segment_stills"/(Path(filename).stem + ".jpg")
         still_info = export_segment_still(
             source, start, end, still_target, number=i,
@@ -471,7 +462,7 @@ def make_reference(args) -> None:
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
                            args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.4","reference_filename":source.name,
+    manifest={"version":"0.4.5","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
@@ -483,7 +474,16 @@ def make_reference(args) -> None:
               "subtitle_style_status":"pending_visual_review",
               "subtitle_style_profile":"subtitle_style_profile.json",
               "subtitle_sample_contact":"subtitle_samples/subtitle_reference_contact.jpg",
-              "segment_still_policy":"each_segment_opening_0.6s_original_reference_clean_frame",
+                             "cut_policy":{
+                   "minimum_exclusive_seconds":MIN_SECONDS_EXCLUSIVE,
+                   "maximum_inclusive_seconds":MAX_SECONDS_INCLUSIVE,
+                   "algorithm":"global_DP_sentence_terminal_scene_preferred",
+                   "source":"raw_ASR_or_supplied_SRT_before_display_punctuation_cleanup",
+                   "confirmed_sentence_end_candidates": verified_sentence_ends(
+                       captions, words, info["duration"]),
+                   "all_nonfinal_cuts_are_confirmed_sentence_ends":True,
+               },
+               "segment_still_policy":"first_10_frames_minimum_OCR_text_before_C_watermark",
               "watermark":{
                   "scheme":"C","text_alpha":0.4,"stroke_alpha":0.8,
                   "landscape_stroke_px_at_1920w":10,"portrait_stroke_px_at_1080w":7},
@@ -835,7 +835,8 @@ def parser()->argparse.ArgumentParser:
     ref.add_argument("--model",default="small",help="faster-whisper 模型，默认 small")
     ref.add_argument("--device",default="cpu",help="cpu 或 cuda")
     ref.add_argument("--language",default="zh")
-    ref.add_argument("--max-seconds",type=float,default=9.8)
+    ref.add_argument("--max-seconds",type=float,default=8.0,
+                     help="严格最大8秒；所有分段均必须>3秒")
     ref.add_argument("--scene-step",type=float,default=.23)
     ref.add_argument("--font-file",type=Path)
     ref.add_argument("--crf",type=int,default=19)

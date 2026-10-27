@@ -66,16 +66,17 @@ def test_srt_empty_punctuation_only_cues_are_skipped(tmp_path):
 
 
 def test_cut_boundaries_sentence_priority_and_maximum():
-    captions=[Caption(0,5.9,"第一句。"),Caption(5.9,12,"第二句。"),Caption(12,17.9,"第三句。")]
-    cuts=choose_cuts(17.9,[5.5,13.1],captions,9.8)
-    assert cuts[0]==0 and cuts[-1]==17.9
-    assert 5.9 in cuts
-    assert all(0<b-a<=9.8 for a,b in zip(cuts,cuts[1:]))
+    captions=[Caption(0,5.9,"第一句。"),Caption(5.9,12,"第二句。"),
+              Caption(12,17.9,"第三句。")]
+    cuts=choose_cuts(17.9,[5.5,13.1],captions,8.0)
+    assert cuts == [0, 5.9, 12., 17.9]
+    assert all(3 < b-a <= 8 for a,b in zip(cuts,cuts[1:]))
 
 
-def test_choose_cuts_long_speech_hard_limit():
-    cuts=choose_cuts(35.6,[],[Caption(0,35.6,"长语句")],maximum=9.8)
-    assert cuts==[0,9.8,19.6,29.4,35.6]
+def test_choose_cuts_long_speech_must_hold_not_hard_cut():
+    from clipflow.cut_planner import NoFeasibleSegmentation
+    with pytest.raises(NoFeasibleSegmentation,match="完整句尾与时长限制"):
+        choose_cuts(35.6,[],[Caption(0,35.6,"长语句")],maximum=8.0)
 
 
 def test_drawtext_scheme_c():

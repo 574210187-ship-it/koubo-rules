@@ -43,7 +43,7 @@ def test_opening_selection_then_overlays_matching_C_sequence_number(tmp_path: Pa
     writer.release()
     frame, stamp, offset, frame_number = select_opening_frame(path,0.,2.)
     assert frame.shape[:2] == (144,256)
-    assert 0.0 <= stamp <= .6
+    assert 0.0 <= stamp <= .75
     assert frame_number >= 3
     assert not np.all(frame==0)
     target = tmp_path/"001_镜头.jpg"
@@ -57,7 +57,7 @@ def test_opening_selection_then_overlays_matching_C_sequence_number(tmp_path: Pa
     assert info["still_sequence_number"] == "001"
     assert info["still_watermark_scheme"] == "C"
     assert info["still_has_sequence_watermark"] is True
-    assert info["still_offset_seconds"] <= .6
+    assert info["still_offset_frame_index"] < 10
     jpg=cv2.imread(str(target))
     assert jpg.shape[:2] == frame.shape[:2]
     # The top left has an added number; the image away from it remains unmodified.
