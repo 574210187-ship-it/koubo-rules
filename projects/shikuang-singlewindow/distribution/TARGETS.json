@@ -1,21 +1,21 @@
 {
-  "schema": "shikuang-sync-targets/v2",
-  "version": "v1.0.2-public-candidate",
-  "library_folder": "/实况/单窗口/releases/v1.0.2-public-candidate/",
+  "schema": "shikuang-sync-targets/v3",
+  "version": "v1.2.0-1080p-mp4zip-candidate",
+  "library_folder": "/实况/单窗口/releases/v1.2.0-1080p-mp4zip-candidate/",
   "github": {
     "repo": "574210187-ship-it/koubo-rules",
     "visibility": "public",
-    "branch": "shikuang-public-v1.0.2",
+    "branch": "shikuang-public-v1.2.0",
     "path_prefix": "projects/shikuang-singlewindow/",
-    "startup_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.0.2/projects/shikuang-singlewindow/START_HERE.md",
-    "release_zip_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.0.2/projects/shikuang-singlewindow/releases/shikuang-singlewindow-v1.0.2-public-candidate.zip",
-    "mutation_policy": "separate_public_release_branch; do not modify main"
+    "startup_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.2.0/projects/shikuang-singlewindow/START_HERE.md",
+    "release_zip_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.2.0/projects/shikuang-singlewindow/releases/shikuang-singlewindow-v1.2.0-1080p-mp4zip-candidate.zip",
+    "release_sha256": "fb87c590d94dce409072fb9ac7919d4287714446b412745facc4acf0799802ec",
+    "release_policy": "immutable branch; update shikuang-public-latest only after independent readback"
   },
   "cos": {
     "status": "BLOCKED_NO_GENERIC_COS_WRITE",
-    "reason": "Existing connected COS MCP is a private expression PNG/GIF only library and cannot store ZIP."
+    "reason": "Connected COS service only supports private expression PNG/GIF assets, not ZIP packages"
   },
-  "publication_state": "PUBLIC_GITHUB_PLUS_LIBRARY_PENDING_INDEPENDENT_READBACK",
-  "no_credentials_in_bundle": true,
-  "new_accounts_require_own_tools": true
+  "production_status": "CANDIDATE_NOT_APPROVED",
+  "e2e_cross_account": "NOT_PROVEN"
 }

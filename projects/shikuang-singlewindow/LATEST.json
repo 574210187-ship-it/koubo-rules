@@ -1,11 +1,11 @@
 {
   "schema": "shikuang-public-latest/v1",
   "project": "实况视频单窗口",
-  "current_version": "v1.0.2-public-candidate",
-  "release_branch": "shikuang-public-v1.0.2",
-  "latest_branch": "shikuang-public-latest",
-  "start_here": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-latest/projects/shikuang-singlewindow/START_HERE.md",
-  "package": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.0.2/projects/shikuang-singlewindow/releases/shikuang-singlewindow-v1.0.2-public-candidate.zip",
-  "package_sha256": "759d6c0cffcd4187e87e6a314c77f6f109826f39e4cd01db4eb1ace36745e3db",
-  "note": "Public release can be downloaded by other accounts, but actual ImageGen/FFmpeg runtime permissions remain account-specific. COS is blocked."
+  "current_version": "v1.2.0-1080p-mp4zip-candidate",
+  "entry_url": "https://raw.githubusercontent.com/574210187-ship-it/koubo-rules/shikuang-public-v1.2.0/projects/shikuang-singlewindow/START_HERE.md",
+  "source_visibility": "public",
+  "zip_sha256": "fb87c590d94dce409072fb9ac7919d4287714446b412745facc4acf0799802ec",
+  "library": "/实况/单窗口/releases/v1.2.0-1080p-mp4zip-candidate/",
+  "cos": "BLOCKED_NO_GENERIC_COS_WRITE",
+  "e2e_cross_account": "NOT_TESTED"
 }
