@@ -1,12 +1,12 @@
 # Reference ClipFlow（对标短视频两阶段工作流）
 
-一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.5**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传私人视频或音轨到GitHub；只有已授权并配置云端ASR时才向专用服务传输音频分块。**
+一个可在本地/云电脑运行的开放式 Python + FFmpeg 工具。当前版本 **v0.4.6**，增加独立音频ASR、词级时间戳和逐片段台词MD。**仅做用户指定的视频处理，不上传私人视频或音轨到GitHub；只有已授权并配置云端ASR时才向专用服务传输音频分块。**
 
 ## 两阶段，一键完成用户确认的1–5项需求
 
 | 阶段 | 输入 | 默认执行 | 输出 |
 |---|---|---|---|
-| **1. 对标视频处理** | 一个参考 MP4 | 三准则(>3且<=8秒／镜头优选／完整句尾)＋C方案水印＋音频ASR/SRT | **`ClipFlow_完整交付.zip`**（分段MP4、每段开头截图、`captions.srt`、`segments_transcript.md`、`manifest.json`、`segments_list.csv`、字幕样张及样式配置）；另保留旧版独立ZIP兼容 |
+| **1. 对标视频处理** | 一个参考 MP4 | 三准则(>3且<=8秒／镜头优选／完整句尾)＋C方案水印＋音频ASR/SRT | **`ClipFlow_完整交付.zip` + ZIP外独立 `文案.txt`**（ZIP内分段MP4、每段开头截图、`captions.srt`、`segments_transcript.md`、`manifest.json`、`segments_list.csv`、字幕样张及样式配置）；另保留旧版独立ZIP兼容 |
 | **2. 新片段合成** | 多个新视频MP4 | 排序 → **原样完整拼接**（不变速、不额外裁切） → 模拟「去灰通透」调色 | 合成MP4、验收报告JSON |
 
 两个**明确可选项**：**原视频声音替换** `--replace-audio` 与 **字幕压制** `--burn-subtitles`。未要求时两者**都不做**；不会自作主张叠字或换音轨。
@@ -36,8 +36,16 @@ Mac：`brew install ffmpeg`；Ubuntu：`sudo apt install ffmpeg fonts-noto-cjk`�
 
 ```bash
 clipflow transcribe --input "无字幕的原视频.mp4" --out "asr_only" --model small --language zh
-# 输出 asr_only/captions.srt + asr_only/transcript.md（逐条字幕时间与台词）
+# 输出 asr_only/captions.srt + asr_only/transcript.md + asr_only/文案.txt（纯台词）
 ```
+
+## v0.4.6：交付独立TXT、从飞书多维表自检领取任务并回填
+
+第一阶段处理完成时**必须同时提供两个独立文件**：`ClipFlow_完整交付.zip` 和 `文案.txt`。`文案.txt`是**纯口播文案**：只有从原声ASR或用户提供的校对SRT中取得的文字，每条字幕源台词一行；没有序号、时间、标题、文档标记、来源说明或其他解释。UTF-8无BOM，保留原始台词正常标点；SRT句末去标点仅作用于SRT，**不会改变TXT或逐段台词MD**。`文案.txt`存放在ZIP**外部**，不能打包进去。生成器拒绝缺少TXT的完整交付，ZIP读回拒绝误混入TXT。独立 `clipflow transcribe` 同时额外输出该纯文案TXT。
+
+**新窗口默认从飞书多维表工作，而不是让用户在聊天框上传视频。** 用户会预先固定表格页面/列/输入附件/输出附件和`未完成`标记，ChatGPT先用已连接的MCP/CLI/API任一可行路径核对真实目标表的记录读取、素材完整下载、成品多附件上传和回读能力，通过后只处理标记为未完成的记录。第一阶段把完整ZIP和TXT分别追加到**该记录**的指定成品附件单元格；第二阶段把最终MP4、验收JSON等追加同样的输出位置。失败时HOLD，不能假装交付或强迫用户再次上传视频。
+
+**目前处于字段绑定待定状态**：真实多维表URL、阶段列、状态/备注列、输入附件列和成品附件列尚未由用户确定，所以工具在代码库提供的是**可执行操作合同和启动指令，不是已连接指定表的生产调度器**。各账号需独立确认权限；只做授权范围自查不等于有权上传测试文件。特别是现有附件MCP视频/ZIP接口不代表能上传 `.txt`，必须另行实测或通过获授权的通用飞书附件CLI/API提供独立TXT，且读回成功后才能完成任务。详细步骤见 [`BITABLE_WORKFLOW.md`](BITABLE_WORKFLOW.md)，对应两条简短启动指令见 [`PROMPT_FOR_CHATGPT.md`](PROMPT_FOR_CHATGPT.md)。
 
 ## v0.4.5：全片三准则切分、开头前10帧文字最少
 
@@ -77,7 +85,7 @@ clipflow transcribe --input "无字幕的原视频.mp4" --out "asr_only" --model
 
 ## v0.4.1：第一阶段完整交付 ZIP（默认主交付）
 
-不再让用户分别下载视频ZIP和字幕参考ZIP。处理一条对标视频，**必须首先交付一个可下载的 `ClipFlow_完整交付.zip`**，它的内容固定为：
+不再让用户分别下载视频ZIP和字幕参考ZIP。处理一条对标视频，**必须首先交付两个独立文件：`ClipFlow_完整交付.zip` + ZIP外的 `文案.txt`**，它的内容固定为：
 
 ```text
 ClipFlow_完整交付.zip
@@ -116,9 +124,10 @@ clipflow reference --input "对标原视频.mp4" --out "project" --srt "人工�
 
 ```text
 project/
+  文案.txt                    # 独立纯文案，绝不进入完整ZIP
   captions.srt                 # 对标完整视频的可导入剪映字幕（UTF-8 BOM）
   segments_transcript.md      # 001...编号、原视频起止时间、每段时长与识别台词
-  ClipFlow_完整交付.zip        # 首要交付：分段MP4+开头截图+SRT+台词MD+清单+样张
+  ClipFlow_完整交付.zip        # 与文案.txt并列主交付：分段MP4+开头截图+SRT+台词MD+清单+样张
   numbered_segments.zip       # 001_镜头.mp4 ... NNN_镜头.mp4
   manifest.json               # 参考视频起止秒、序号、音轨/分辨率、方案C参数
   subtitle_style_profile.json # 待视觉审核的对标样式配置（初始不作假定）

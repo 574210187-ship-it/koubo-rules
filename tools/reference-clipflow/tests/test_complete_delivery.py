@@ -58,7 +58,16 @@ def test_reference_srt_delivers_complete_zip(tmp_path: Path):
     delivery = out/"ClipFlow_完整交付.zip"
     assert delivery.is_file() and delivery.stat().st_size > 5000
     assert zipfile.is_zipfile(delivery)
+    plain_txt = out/"文案.txt"
+    assert plain_txt.is_file()
+    assert plain_txt.read_text("utf-8") == (
+        "大家好，我是律师。\n"
+        "遇到合同纠纷，可以找我。\n"
+        "我们来谈谈证据。\n")
+    assert not plain_txt.read_bytes().startswith(b"\xef\xbb\xbf")
     with zipfile.ZipFile(delivery) as z:
+        assert "文案.txt" not in z.namelist()
+        assert not any(n.endswith("/文案.txt") for n in z.namelist())
         assert z.testzip() is None
         names = set(z.namelist())
         required = {"captions.srt", "segments_transcript.md", "manifest.json",
@@ -84,8 +93,10 @@ def test_reference_srt_delivers_complete_zip(tmp_path: Path):
         assert "大家好，我是律师。" in script  # MD keeps original words and punctuation
         assert script.count("### 第") == len(clips)
         data = json.loads(z.read("manifest.json"))
-        assert data["version"] == "0.4.5"
+        assert data["version"] == "0.4.6"
         assert data["caption_source"] == "supplied_srt"
+        assert data["plain_script_document"] == "文案.txt"
+        assert data["plain_script_delivery"] == "standalone_outside_complete_zip"
         assert len(data["segments"]) == len(clips)
         assert all(x["duration"] <= 8.0 for x in data["segments"])
         for segment in data["segments"]:
@@ -170,4 +181,31 @@ def test_mismatched_still_number_blocks_delivery(tmp_path: Path):
     (root/"manifest.json").write_text(json.dumps({"segments":[entry]}), encoding="utf-8")
     with pytest.raises(RuntimeError,match="截图缺少对应序号水印验证记录"):
         build_complete_delivery_zip(root,[entry])
+    assert not (root/"ClipFlow_完整交付.zip").exists()
+
+
+def test_missing_standalone_txt_prevents_full_zip(tmp_path: Path):
+    """A valid ZIP must never be delivered without the separate TXT."""
+    root = tmp_path
+    for name in ("captions.srt", "segments_transcript.md", "manifest.json",
+                 "segments_list.csv", "subtitle_style_profile.json"):
+        (root/name).write_text("ready", encoding="utf-8")
+    (root/"captions.srt").write_text("1\n00:00:00,000 --> 00:00:04,000\n你好\n", encoding="utf-8")
+    (root/"segments_transcript.md").write_text("### 第001段｜00:00.000—00:04.000｜4.000 秒\n**台词：** 你好", encoding="utf-8")
+    (root/"segments").mkdir()
+    (root/"segments/001_镜头.mp4").write_bytes(b"video")
+    (root/"segment_stills").mkdir()
+    (root/"segment_stills/001_镜头.jpg").write_bytes(b"image")
+    (root/"subtitle_samples").mkdir()
+    (root/"subtitle_samples/subtitle_reference_contact.jpg").write_bytes(b"contact")
+    (root/"subtitle_samples/cue_001_mock.jpg").write_bytes(b"cue")
+    entry = {"index": 1, "file": "001_镜头.mp4", "start": 0, "end": 4,
+             "still_image": "segment_stills/001_镜头.jpg",
+             "still_candidate_frames": 10,
+             "still_selection_policy": "fewest_OCR_characters_then_area_then_clarity_first_10_frames",
+             "still_sequence_number": "001", "still_watermark_scheme": "C",
+             "still_has_sequence_watermark": True}
+    (root/"manifest.json").write_text(json.dumps({"segments": [entry]}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="缺少独立纯文字文案TXT"):
+        build_complete_delivery_zip(root, [entry])
     assert not (root/"ClipFlow_完整交付.zip").exists()

@@ -7,6 +7,7 @@ import subprocess
 import pytest
 from clipflow.cli import (Caption, load_srt, save_srt, clock, seconds,
                           srt_without_terminal_punctuation, validate_srt_export_punctuation,
+                          write_plain_script_txt,
                           choose_cuts, subtitle_chunks, drawtext_filter, media_info,
                           resolve_order, convert_srt_to_ass, main)
 
@@ -63,6 +64,21 @@ def test_srt_empty_punctuation_only_cues_are_skipped(tmp_path):
         save_srt([Caption(0,1,"......")],tmp_path/"empty.srt")
     with pytest.raises(RuntimeError,match="字幕行结尾存在标点"):
         validate_srt_export_punctuation("1\n00:00:00,000 --> 00:00:01,000\n不合规。\n")
+
+
+def test_standalone_plain_txt_contains_spoken_text_only(tmp_path):
+    captions = [Caption(0, 1, "大家好，我是姜律师。"),
+                Caption(1, 2, "遇到合同纠纷，\n可以来咨询！")]
+    txt = tmp_path/"文案.txt"
+    write_plain_script_txt(captions, txt)
+    data = txt.read_bytes()
+    assert not data.startswith(b"\xef\xbb\xbf")
+    assert data.decode("utf-8") == "大家好，我是姜律师。\n遇到合同纠纷， 可以来咨询！\n"
+    assert "00:00" not in data.decode("utf-8")
+    assert "第001段" not in data.decode("utf-8")
+    assert "台词：" not in data.decode("utf-8")
+    with pytest.raises(ValueError, match="没有可信台词"):
+        write_plain_script_txt([Caption(0, 1, " ")], tmp_path/"empty.txt")
 
 
 def test_cut_boundaries_sentence_priority_and_maximum():

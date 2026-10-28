@@ -142,6 +142,25 @@ def srt_without_terminal_punctuation(text: str) -> str:
     return "\n".join(cleaned).strip()
 
 
+def write_plain_script_txt(captions: Iterable[Caption], path: Path) -> None:
+    """Export only spoken text to a standalone UTF-8 TXT, without metadata.
+
+    Retains the original transcription punctuation (SRT display cleanup is a
+    separate rule). Each source transcript cue becomes one plain-text line.
+    No numbering, timestamps, filename, title, or Markdown formatting.
+    """
+    lines: list[str] = []
+    for caption in captions:
+        spoken = " ".join(line.strip() for line in caption.text.splitlines()
+                          if line.strip())
+        if spoken:
+            lines.append(spoken)
+    if not lines:
+        raise ValueError("没有可信台词，不能写出空白文案TXT")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def save_srt(captions: Iterable[Caption], path: Path) -> None:
     """Export UTF-8 BOM SRT without sentence-ending punctuation in cues."""
     prepared = [(c, srt_without_terminal_punctuation(c.text)) for c in captions]
@@ -347,6 +366,9 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
                 or row.get("still_has_sequence_watermark") is not True):
             raise RuntimeError(f"第{number}段截图缺少对应序号水印验证记录，拒绝交付")
     validate_srt_export_punctuation((out/"captions.srt").read_text("utf-8-sig"))
+    plain_text_file = out/"文案.txt"
+    if not plain_text_file.is_file() or not plain_text_file.read_text("utf-8").strip():
+        raise RuntimeError("缺少独立纯文字文案TXT，拒绝完整交付")
     md = (out/"segments_transcript.md").read_text("utf-8")
     for item in entries:
         if f"### 第{int(item['index']):03d}段｜" not in md:
@@ -364,6 +386,8 @@ def build_complete_delivery_zip(out: Path, entries: list[dict]) -> Path:
         with zipfile.ZipFile(intermediate, "r") as z:
             if len(z.namelist()) != len(members) or set(z.namelist()) != set(members):
                 raise RuntimeError("交付ZIP清单与实际成员不一致")
+            if any(Path(name).name == "文案.txt" for name in z.namelist()):
+                raise RuntimeError("文案TXT必须独立交付，禁止放入ZIP")
             corrupt = z.testzip()
             if corrupt:
                 raise RuntimeError(f"交付ZIP内部成员校验失败: {corrupt}")
@@ -419,6 +443,7 @@ def make_reference(args) -> None:
     if not captions:
         raise RuntimeError("当前视频时间范围内无有效字幕")
     save_srt(captions,out/"captions.srt")
+    write_plain_script_txt(captions, out/"文案.txt")
     # These are visual samples, NOT an automatic font recognition claim.
     reference_samples=create_reference_samples(source,captions,out/"subtitle_samples",
                                                 info["width"],info["height"])
@@ -462,12 +487,14 @@ def make_reference(args) -> None:
     write_segment_document(transcript_md, source.name, info["duration"],
                            entries, transcript_parts, origin, alignment,
                            args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None)
-    manifest={"version":"0.4.5","reference_filename":source.name,
+    manifest={"version":"0.4.6","reference_filename":source.name,
               "reference_duration":round(info["duration"],3),
               "reference_sha256":sha256(source),"original_media":{
                   "width":info["width"],"height":info["height"],"fps":info["fps"]},
               "caption_source":origin,
               "transcript_document":"segments_transcript.md",
+              "plain_script_document":"文案.txt",
+              "plain_script_delivery":"standalone_outside_complete_zip",
               "transcript_alignment":alignment,
               "asr_model":args.model if origin in ("cloud_whisper_asr", "faster_whisper_asr") else None,
               "asr_language":recognized_language,
@@ -504,7 +531,7 @@ def make_reference(args) -> None:
     write_segment_list_csv(out/"segments_list.csv", entries)
     complete_zip = build_complete_delivery_zip(out, entries)
     print(f"[delivery] 完整交付ZIP已通过成员、CRC、时长清单与片段数量校验：{complete_zip} ({complete_zip.stat().st_size} 字节)")
-    print(f"完成：{len(entries)}段；主要交付 {complete_zip}；单独SRT {out/'captions.srt'}；逐段台词 {transcript_md}")
+    print(f"完成：{len(entries)}段；主要交付 {complete_zip}；独立纯文案 {out/'文案.txt'}；单独SRT {out/'captions.srt'}；逐段台词 {transcript_md}")
 
 
 def resolve_order(clips: list[Path], order_file: Path|None,
@@ -800,6 +827,7 @@ def transcribe_only(args) -> None:
     out.mkdir(parents=True, exist_ok=True)
     recognized = recognize(source, args.model, args.device, args.language,backend=args.asr_backend)
     save_srt([Caption(s.start,s.end,s.text) for s in recognized.captions],out/"captions.srt")
+    write_plain_script_txt([Caption(s.start,s.end,s.text) for s in recognized.captions],out/"文案.txt")
     write_whole_transcript(out/"transcript.md",source.name,recognized.captions,
                            args.model,recognized.language,recognized.alignment)
     print(f"完成语音识别：{out/'captions.srt'}；{out/'transcript.md'}")

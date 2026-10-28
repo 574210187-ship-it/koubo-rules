@@ -1,13 +1,13 @@
-# Reference ClipFlow｜两句启动词
+# Reference ClipFlow｜两条飞书表格自检启动词（v0.4.6）
 
-所有处理规则、参数、两阶段输出和可选项，以本项目 `AGENTS.md` 与 `README.md` 为准。提示词只负责启动，不重复写规则。
+此处的指令用于**用户已经人工配置、授权并绑定目标飞书多维表**的新/旧ChatGPT窗口。AI必须再次自检目标表记录读取、附件实际下载以及全套成品文件上传能力（MCP/API/CLI任一路径均可），不要求用户在聊天上传视频。准确字段映射、阶段划分、单元格位置和HOLD行为遵从 `BITABLE_WORKFLOW.md`、`AGENTS.md`、`README.md`。在真实绑定完成前只执行自检并报缺失，**不领取、下载或上传任意业务数据**。
 
-## 当前ChatGPT账号（优先复用）
+## 当前ChatGPT账号（优先复用现有程序）
 
-> 执行 ClipFlow：优先使用本地最新版，缺失再从已连接的 GitHub 获取；按项目规则自动处理我上传的视频。
+> 执行 ClipFlow 最新版；先按 BITABLE_WORKFLOW.md 自检已绑定飞书多维表的真实读取、附件下载及全部交付文件上传能力（MCP/API/CLI任选可用路径）。通过后从固定表内领取“备注=未完成”的记录，按记录阶段下载素材并处理；把全部必交成品追加回同一记录指定附件格，远端读回成功再标完成。第一阶段单独交付 ZIP 与纯文案TXT（TXT不进ZIP）。缺权限或表格绑定则HOLD，不让我往聊天上传视频。
 
 ## 其他ChatGPT账号（公开仓库）
 
-> 加载 https://github.com/574210187-ship-it/koubo-rules/tree/main/tools/reference-clipflow ，读取 AGENTS.md；优先复用已有安装，缺失再安装，按项目规则处理我上传的视频。
+> 加载 https://github.com/574210187-ship-it/koubo-rules/tree/main/tools/reference-clipflow 最新版并读取 AGENTS.md、README.md、BITABLE_WORKFLOW.md；先自检已绑定飞书多维表的记录读取、附件真实下载及全部成品上传能力（MCP/API/CLI任选），通过后只处理固定表内“备注=未完成”的记录，按阶段从表中取素材，结果全部回填同条记录的指定附件格并读回验收；第一阶段ZIP外另交纯文案TXT。缺连接或字段绑定就HOLD，不要求我在聊天上传视频。
 
-首次载入成功后，后续只说“执行 ClipFlow”，并上传对标视频或新片段即可。两项可选功能未明确要求时均不执行；详细规则见 `AGENTS.md`。
+以后在已确认具有可读写飞书连接与表字段绑定的窗口，只说“执行 ClipFlow”即可按上述合同工作。此指令**不表示**任何新账号自动继承当前账号的权限、密钥或远端数据。

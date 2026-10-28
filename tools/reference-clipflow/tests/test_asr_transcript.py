@@ -129,10 +129,11 @@ def test_reference_with_srt_generates_segment_document_and_archive(tmp_path):
     assert status==0
     assert (output/"captions.srt").is_file()
     assert (output/"segments_transcript.md").is_file()
+    assert (output/"文案.txt").read_text("utf-8") == "法律咨询，\n合同纠纷。\n"
     exported = load_srt(output/"captions.srt")
     assert [c.text for c in exported] == ["法律咨询", "合同纠纷"]
     manifest=json.loads((output/"manifest.json").read_text())
-    assert manifest["version"]=="0.4.5"
+    assert manifest["version"]=="0.4.6"
     assert manifest["caption_source"]=="supplied_srt"
     assert manifest["transcript_alignment"]=="srt_estimated"
     assert "segments_transcript.md"==manifest["transcript_document"]
@@ -179,6 +180,8 @@ def test_standalone_transcribe_audio(monkeypatch,tmp_path):
     _fake_asr(monkeypatch)
     assert main(["transcribe","--input",str(audio),"--out",str(tmp_path/"asr")])==0
     assert (tmp_path/"asr/captions.srt").is_file()
+    assert (tmp_path/"asr/文案.txt").read_text("utf-8") == (
+        "大家好，我是姜律师。\n合同纠纷也能咨询。\n")
     assert [c.text for c in load_srt(tmp_path/"asr/captions.srt")] == [
         "大家好，我是姜律师", "合同纠纷也能咨询"]
     # The independent transcript stays verbatim: this normalization is SRT-only.
