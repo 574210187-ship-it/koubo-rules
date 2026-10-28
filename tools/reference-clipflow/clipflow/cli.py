@@ -840,6 +840,8 @@ def doctor() -> None:
     present = importlib.util.find_spec("faster_whisper") is not None
     print(json.dumps({
         "clipflow_version": __version__,
+        "active_workflow": "reference_only",
+        "legacy_assemble_cli_enabled": False,
         "ffmpeg_installed": shutil.which("ffmpeg") is not None,
         "ffprobe_installed": shutil.which("ffprobe") is not None,
         "asr_backend": "cloud-if-configured-else-local-faster-whisper",
@@ -853,7 +855,7 @@ def doctor() -> None:
 
 
 def parser()->argparse.ArgumentParser:
-    p=argparse.ArgumentParser(prog="clipflow",description="对标视频拆分、水印C、ASR/SRT、逐段台词；新片段拼接与去灰通透，不默认60帧。")
+    p=argparse.ArgumentParser(prog="clipflow",description="当前唯一活动流程：对标视频第一阶段切分、编号、原声ASR、SRT/MD及ZIP外纯文案TXT。历史合成阶段已停用。")
     sub=p.add_subparsers(dest="action",required=True)
     ref=sub.add_parser("reference",help="阶段一：视频 -> 编号片段ZIP + 原声识别SRT + 逐段台词MD")
     ref.add_argument("--input",type=Path,required=True)
@@ -879,7 +881,7 @@ def parser()->argparse.ArgumentParser:
     tr.add_argument("--language",default="zh",help="中文zh；自动识别可用auto")
     tr.add_argument("--overwrite",action="store_true")
     sub.add_parser("doctor",help="检查FFmpeg与本地ASR依赖状态，不下载安装")
-    ass=sub.add_parser("assemble",help="阶段二：新片段自动排顺序拼接＋去灰通透；原声/字幕仅按显式选项")
+    ass=sub.add_parser("assemble",help="历史第二阶段（已停用，不执行；保留参数仅为兼容旧脚本诊断）")
     ass.add_argument("--clips-dir",type=Path)
     ass.add_argument("--clips",type=Path,nargs="+")
     ass.add_argument("--out",type=Path,required=True)
@@ -908,7 +910,8 @@ def main(argv:list[str]|None=None)->int:
     args=p.parse_args(argv)
     try:
         if args.action=="reference":make_reference(args)
-        elif args.action=="assemble":assemble(args)
+        elif args.action=="assemble":
+            raise RuntimeError("当前ClipFlow仅允许第一阶段reference；历史第二阶段assemble已停用，不执行合并。")
         elif args.action=="transcribe":transcribe_only(args)
         elif args.action=="doctor":doctor()
     except (OSError,ValueError,RuntimeError,AssertionError) as exc:

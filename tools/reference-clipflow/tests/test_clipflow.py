@@ -9,7 +9,7 @@ from clipflow.cli import (Caption, load_srt, save_srt, clock, seconds,
                           srt_without_terminal_punctuation, validate_srt_export_punctuation,
                           write_plain_script_txt,
                           choose_cuts, subtitle_chunks, drawtext_filter, media_info,
-                          resolve_order, convert_srt_to_ass, main)
+                          resolve_order, convert_srt_to_ass, main, parser, assemble)
 
 
 def test_srt_roundtrip(tmp_path):
@@ -139,11 +139,27 @@ def test_end_to_end_default_assemble_no_optional_actions(tmp_path):
              "-shortest","-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p",
              "-c:a","aac",str(clipdir/f"{n:03d}_test.mp4")],check=True)
     target=tmp_path/"joined.mp4"
-    assert main(["assemble","--clips-dir",str(clipdir),"--out",str(target),
-                 "--preset","ultrafast"])==0
+    args = parser().parse_args(["assemble","--clips-dir",str(clipdir),"--out",str(target),
+                                 "--preset","ultrafast"])
+    assemble(args)  # historical internal regression only; public CLI is disabled
     report=json.loads(target.with_suffix(".report.json").read_text())
     assert report["original_audio_replaced"] is False
     assert report["subtitle_burned"] is False
     assert report["color_grade"] is True
     assert report["source_count"]==2
     assert 2.4<=media_info(target)["duration"]<2.6
+
+
+def test_active_cli_rejects_legacy_assemble_without_side_effects(tmp_path, capsys):
+    target = tmp_path / "must_not_exist.mp4"
+    rc = main(["assemble", "--clips-dir", str(tmp_path), "--out", str(target)])
+    assert rc == 2
+    assert not target.exists()
+    assert "仅允许第一阶段reference" in capsys.readouterr().err
+
+
+def test_doctor_declares_stage_one_only(capsys):
+    assert main(["doctor"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["active_workflow"] == "reference_only"
+    assert report["legacy_assemble_cli_enabled"] is False

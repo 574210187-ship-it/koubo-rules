@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from clipflow.cli import Caption, main, media_info, save_srt
+from clipflow.cli import Caption, main, media_info, save_srt, parser, assemble
 from clipflow.subtitle_style import (
     ass_color, create_reference_samples, create_style_template,
     read_style_profile, convert_matched_ass,
@@ -98,17 +98,20 @@ def test_reference_phase_produces_samples_and_pending_profile(tmp_path):
     assert (out/'numbered_segments.zip').is_file()
     clips=out/'segments'
     target=tmp_path/'output.mp4'
-    # Safety: cannot silently fallback to C/B while reference style is pending.
-    assert main(['assemble','--clips-dir',str(clips),
-                 '--out',str(target),'--manifest',str(out/'manifest.json'),
-                 '--burn-subtitles','--preset','ultrafast'])==2
+    # Public CLI now rejects the frozen stage two. Internal legacy regression
+    # stays isolated to synthetic test data and is never a production entrypoint.
+    legacy_argv = ['assemble','--clips-dir',str(clips),
+                   '--out',str(target),'--manifest',str(out/'manifest.json'),
+                   '--burn-subtitles','--preset','ultrafast']
+    assert main(legacy_argv) == 2
     assert not target.exists()
+    args = parser().parse_args(legacy_argv)
+    with pytest.raises(ValueError,match='尚未视觉审核'):
+        assemble(args)
     d=json.loads((out/'subtitle_style_profile.json').read_text())
     d.update({'visually_reviewed':True,'reference_has_subtitles':False})
     (out/'subtitle_style_profile.json').write_text(json.dumps(d))
-    assert main(['assemble','--clips-dir',str(clips),'--out',str(target),
-                 '--manifest',str(out/'manifest.json'),
-                 '--burn-subtitles','--preset','ultrafast'])==0
+    assemble(args)
     report=json.loads(target.with_suffix('.report.json').read_text())
     assert report['subtitle_style_source']=='confirmed_no_reference_subtitles_fallback'
     assert report['subtitle_burned'] is True
