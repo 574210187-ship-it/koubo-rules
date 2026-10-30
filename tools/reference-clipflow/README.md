@@ -67,7 +67,7 @@ The online workflow is defined in [ONLINE_WORK_MODE.md](ONLINE_WORK_MODE.md); it
 - input: `对标视频、图文`
 - output: `处理后音、视频`
 
-The controller selects only rows whose output is empty and whose fields satisfy the documented `ZED` / `二次分类` predicate. It processes rows serially and append-uploads exactly the three final files, then re-reads each attachment and verifies complete SHA-256.
+The controller first verifies that `ZED`, `二次分类型`, the input attachment and the output attachment fields are actually readable; only then does it select rows whose output is empty and whose fields satisfy the documented predicate. A missing field is `BINDING_HOLD`, not permission to guess. It processes rows serially and append-uploads exactly the three final files, then re-reads each attachment and verifies complete SHA-256.
 
 **Important:** a Feishu resource link, temporary URL, remote SHA or `chatgpt_widget_transfer_ready` does not put an MP4 in the Work Mode media runtime. Until the connector returns a real current-runtime path that passes `stat`, local SHA-256 and `ffprobe`, the correct result is `INPUT_BRIDGE_HOLD`; it must not process or upload a fabricated delivery.
 
