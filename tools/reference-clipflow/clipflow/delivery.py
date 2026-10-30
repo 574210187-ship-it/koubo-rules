@@ -93,7 +93,7 @@ def _write_and_verify_archive(destination: Path, members: dict[str, Path]) -> Pa
 def build_final_delivery_packages(out: Path, entries: list[dict]) -> tuple[Path, Path, Path]:
     """Build exactly two ZIPs and one standalone pure-text TXT.
 
-    ``videos_and_screenshots.zip`` contains only numbered MP4s and their
+    ``videos_and_screenshot.zip`` contains only numbered MP4s and their
     matching JPGs.  ``supporting_materials.zip`` contains all non-media
     delivery evidence.  The returned ``文案.txt`` remains outside both ZIPs.
     """
@@ -141,6 +141,6 @@ def build_final_delivery_packages(out: Path, entries: list[dict]) -> tuple[Path,
         if row.get("still_image") != expected:
             raise RuntimeError("manifest内截图与MP4编号无法一一对应")
 
-    media_zip = _write_and_verify_archive(out / "videos_and_screenshots.zip", media)
+    media_zip = _write_and_verify_archive(out / "videos_and_screenshot.zip", media)
     support_zip = _write_and_verify_archive(out / "supporting_materials.zip", support)
     return media_zip, support_zip, plain_script
