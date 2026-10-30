@@ -1,60 +1,76 @@
-# ClipFlow v0.4.8｜纯线上 Work Mode 流程
+# ClipFlow｜唯一正式线上执行线
 
-## 范围
+此文件是本项目唯一可执行流程母本。WorkBuddy、普通页面自己从飞书物化、`bitable_materialize_attachment` 直接入媒体容器、临时 URL、resource link、旧 OCR-only/v0.5 包，以及任何多页并发分支，均不是当前流程。
 
-此流程只给**同一账号的 Work Mode 窗口**使用。该窗口本身读取飞书、处理媒体、上传和读回；不打开普通 ChatGPT 子页面、不使用 WorkBuddy、不使用浏览器自动化，也不使用本机 Worker。
+## 唯一闭环
 
-绑定目标：
+```text
+飞书多维表
+  → Work Mode 控制端锁定并下载/重建输入字节、核验 SHA-256
+  → 控制端的云端浏览器把已核验 MP4 原生附入一个普通 ChatGPT 媒体页
+  → 该媒体页 stat + SHA-256 + ffprobe 后，运行 ClipFlow v0.4.8
+  → 该媒体页向原记录 append 2 ZIP + 1 TXT
+  → Work Mode 控制端重新读取并逐件核验远端 SHA-256
+```
 
-| 项 | 固定值 |
-|---|---|
-| app_token | `TRbibTAzmagpV4shYbcchcIVnhd` |
-| table_id | `tblgYhWtUJDDKJjJ` |
-| 工作视图 | `剧情` / `vewG1nXQcP` |
-| 输入附件字段 | `对标视频、图文` |
-| 输出附件字段 | `处理后音、视频` |
-| 识别字段 | `视频编号` |
-| 筛选字段 | `ZED`、`二次分类型` |
+这条线完全云端运行，**不使用 WorkBuddy**。浏览器只做原生附件交接；不处理视频、不跑 FFmpeg/ASR/OCR、不写飞书。普通媒体页才是媒体执行器；Work Mode 控制端才是选行、输入桥和独立验收者。
 
-## 领取条件
+## 1. Work Mode 控制端：筛选与单行锁
 
-只在剧情视图中处理同时满足以下条件的记录：
+固定表身份：
 
-- `处理后音、视频` 为空；
-- 输入字段恰有一个可解码 MP4；
-- `ZED` 包含“拆分”，**或** `ZED` 为空且 `二次分类型` 为“剧情”。
+- app：`TRbibTAzmagpV4shYbcchcIVnhd`
+- table：`tblgYhWtUJDDKJjJ`
+- view：`剧情` / `vewG1nXQcP`
+- 记录识别：`视频编号`
+- 输入：`对标视频、图文`
+- 输出：`处理后音、视频`
 
-先获取本视图的当前记录再以字段值复核；不能仅相信视图名称。当前 MCP 实读字段名为`二次分类型`；若`ZED`、输入附件或输出附件字段在本次读取中不可见，先报`BINDING_HOLD`，不得猜字段。按稳定记录顺序**串行**处理所有符合项。每行是一个独立事务：上一行读回通过才开始下一行；任何一行 HOLD 不得改写该行、不得改写别行，也不得猜测其为已完成。
+每次先从剧情视图读取，并在实际记录内确认字段存在。只领取：
 
-## 严格输入桥门禁
+```text
+输出字段为空
+AND 输入字段恰有一个 MP4
+AND (
+  zed备注 含“拆分”
+  OR (zed备注 为空 AND 二次分类型 = “剧情”)
+)
+```
 
-1. 调用 `bitable_connection_status`，再读取视图/记录，确认上述绑定和唯一 MP4。
-2. 读取源附件大小和 SHA-256；调用附件原生物化能力。
-3. 只有 Work Mode 的**媒体运行时**出现真实可读文件，且可取得绝对路径、`stat` 字节数、同源 SHA-256 和 `ffprobe` 解码信息，才是 `INPUT_BRIDGE_PASS`。
-4. `chatgpt_widget_transfer_ready`、资源链接、临时下载 URL、仅服务端 SHA，均不是文件。它们只能得到 `INPUT_BRIDGE_HOLD`；禁止改用截图、假文件、浏览器绕行、手工补传或上传模拟成品。
+字段未返回、字段名不符、附件不唯一或输出已有内容，均为 `BINDING_HOLD`；不得猜字段、补条件、覆盖历史附件。按稳定顺序一次只锁一行；只有上一行的最终远端读回通过，才可继续下一行。
 
-当前连接器必须把附件物化到**当前 Work Mode 运行时**才可真正全自动。若这一能力尚未实际返回本地文件，此流程的正确运行结果是 HOLD，而不是“已处理”。
+## 2. 已验证输入桥
 
-## 单行执行与验收
+1. 控制端读取锁定 record_id、视频编号、唯一 file_token、文件名、大小与源端 SHA-256。
+2. 控制端用 `bitable_read_attachment_chunk` 顺序取得真实字节，逐块核验块 SHA，重建一个临时 MP4，并核验完整本地 SHA-256 与 `ffprobe`。
+3. 控制端在云端浏览器中新开/复用**一个**普通 ChatGPT 媒体页，通过页面原生附件 UI 上传这一个已核验 MP4。
+4. 媒体页必须独立再次给出其容器内绝对路径、stat 字节数、SHA-256 和 ffprobe；任一不一致即 `INPUT_BRIDGE_HOLD`，不开始媒体处理、不写飞书。
 
-输入桥通过后：
+`chatgpt_widget_transfer_ready` 不是这条桥的成功信号，也不能替代第 2–4 步。此前成功的桥正是“控制端字节核验后原生上传”，不是“普通页面直接从飞书得到文件”。
 
-1. 在当前 Work Mode 运行时运行 v0.4.8 `clipflow reference`。
-2. 先通过三约束：实际每段 `>3s && <=8s`、完整句尾、镜头优先；无解写 `cut_conflict.json` 并 HOLD。
-3. 验证前 10 帧 OCR 选图与 C 同号水印。
-4. 只生成并验收 `videos_and_screenshot.zip`、`supporting_materials.zip` 与 ZIP 外 `文案.txt`。第一 ZIP 仅 MP4/JPG；第二 ZIP 仅支持材料；TXT 必须 UTF-8 无 BOM、逐行纯文字且不在 ZIP 内。
-5. 对三件计算本地 SHA-256；以 `record_id + 文件 SHA-256 + v0.4.8` 形成稳定幂等键，使用 `bitable_upload_file_append` 仅追加到同一记录的 `处理后音、视频` 字段。
-6. 重新读取该记录，并对三件执行完整远端 SHA-256 读回。只有文件名、大小、完整 SHA 都与本地一致时才标记 `UPLOADED_READBACK_PASS`。
+## 3. 媒体页处理
 
-不覆盖、不删除附件；不改 `执行记录` 或其他状态字段。历史存在旧附件时，记录不是可领取项，因为输出字段不为空。
+媒体页只处理锁定的一个 record。它必须使用当前 GitHub 的 ClipFlow v0.4.8 正式代码，并先证明程序包身份；没有可验证的 v0.4.8 程序包则 `PROGRAM_GATE_HOLD`。
 
-## 状态词
+处理和交付合同：
 
-- `NO_ELIGIBLE_ROWS`：没有满足条件的行。
-- `INPUT_BRIDGE_HOLD`：飞书附件未成为当前 Work Mode 可读媒体文件。
-- `CUT_CONTRACT_HOLD`：没有可同时满足 3–8 秒、完整句尾和镜头优先的切分。
-- `DELIVERY_HOLD`：三件本地成品或 ZIP/TXT 验收失败。
-- `UPLOAD_READBACK_HOLD`：上传结果无法逐件远端读回。
-- `UPLOADED_READBACK_PASS`：一行的三件文件全部读回匹配，可继续下一行。
+- 每段实际编码时长严格 `>3.000 && <=8.000`；
+- 只在可信完整句尾切；镜头变化仅作优先候选；无可行解输出 `cut_conflict.json` 并 `CUT_CONTRACT_HOLD`；
+- 每段截图只从开头前10帧选中文 OCR 文字最少者，选完后才加 C 方案同号水印；
+- 成功的正式本地文件**仅**是：
+  1. `videos_and_screenshot.zip`：编号 MP4 + 同号 JPG；
+  2. `supporting_materials.zip`：其余支持材料；
+  3. `文案.txt`：ZIP 外、UTF-8 无 BOM、逐行纯台词。
+- 媒体页先在本地验证三件的 ZIP 成员/CRC、时长、映射、TXT，再用 `bitable_upload_file_append` append 到同一条记录的 `处理后音、视频`。不修改 `执行记录` 或任何其他业务字段。
 
-固定启动提示词见 `PROMPT_FOR_CHATGPT.md`。
+## 4. 控制端最终验收
+
+控制端重新精确读取同一 record：
+
+- 输出字段恰有本轮三件，没有重复或额外模拟成品；
+- 名称、大小、完整远端 SHA-256 与媒体页本地文件一致；
+- 输入字段、`执行记录` 和其他行没有变化。
+
+所有条件成立才为 `DELIVERY_VERIFIED`。失败为 `OUTPUT_HOLD`，保留页面和状态以便精确恢复；不删除聊天、关闭浏览器或删除飞书附件，除非用户单独授权。
+
+唯一启动提示词在 `PROMPT_FOR_CHATGPT.md`。其它说明文件只能引用本文件，不能再定义第二条执行线。
