@@ -1,35 +1,27 @@
-# Reference ClipFlow｜执行合同（v0.4.8）
+# Reference ClipFlow｜当前执行规则
 
-本目录只处理第一阶段：从已经绑定的飞书多维表取得一条原始对标 MP4，按固定质量合同切分，并把最终三件成品追加回**同一条记录**。不执行第二阶段，不拼接新视频、不换声、不调色、不烧字幕。WorkBuddy、浏览器多页面调度不属于本版本。
+唯一线上执行线定义在 [ONLINE_WORK_MODE.md](ONLINE_WORK_MODE.md)。任何执行窗口先读该文件；与它冲突的历史指令一律不执行。
 
-## 最终交付：恰好 2 ZIP + 1 TXT
+## 范围
 
-成功时只把下列三件作为正式对外交付并回填成品附件格：
+只处理第一阶段的原始对标 MP4 切分。禁止第二阶段拼接、调色、换声、烧字幕。WorkBuddy 不在本工作流中；浏览器只做 Work Mode 控制端到普通媒体页的原生附件交接。
 
-1. `videos_and_screenshot.zip`：只包含 `segments/` 下连续编号的 MP4 和 `segment_stills/` 下同编号 JPG；每段视频与一张截图一一对应。
-2. `supporting_materials.zip`：包含 `captions.srt`、`segments_transcript.md`、`manifest.json`、`segments_list.csv`、`subtitle_style_profile.json` 和 `subtitle_samples/` 的全部支持材料。
-3. `文案.txt`：独立于两个 ZIP；UTF-8 无 BOM；每行只是一条可信原始口播文本，不含编号、时间码、文件名、Markdown、标题或解释。
+## 质量合同
 
-`文案.txt` 绝不能进入 ZIP。不得交付旧的 `ClipFlow_完整交付.zip`、`numbered_segments.zip` 或 `subtitle_reference_stylekit.zip` 作为额外正式成品。
+- 每段实际 FFprobe 时长：`3.000 < duration <= 8.000`；
+- 非末段只能在可信完整句尾切；镜头变化是优先候选；无可行路线写 `cut_conflict.json` 并 HOLD；
+- 每段 JPG 只从原片该段开头前10帧选中文 OCR 文字最少的一帧，选定后才加 C 同号水印；
+- 可信 ASR 或用户校对 SRT 是完整句尾和纯文案的前提，视觉 OCR 不能替代；
+- 正式成品仅为 `videos_and_screenshot.zip`、`supporting_materials.zip`、ZIP 外 `文案.txt`。
 
-## 不可放宽的媒体合同
+## 角色边界
 
-- 每段**实际 FFprobe 时长**严格 `> 3.000s && <= 8.000s`。
-- 非片尾切点只能是可信原始 ASR 或人工校对 SRT 的完整句尾；镜头变化只是候选优先级。没有同时满足条件的路线，写出 `cut_conflict.json` 并 HOLD，不硬切、不放宽时长。
-- 每段 JPG 只从该段原视频开头连续前 10 帧中选取：先排除黑场/闪白，再按中文 OCR 可见文字最少、文字面积最小、清晰稳定、较早帧排序；**选中后**才加 C 方案同号水印。
-- 需要可信 ASR（或用户提供的校对 SRT）才能证明完整句尾并生成纯文案。视觉 OCR 不可替代音频句尾证据。
-- 交付前必须逐段验证时长、编号、MP4/JPG 对应关系、SRT、manifest、两个 ZIP 的成员和 CRC，以及 ZIP 外 TXT 的 UTF-8 纯文本属性。
+- **Work Mode 控制端**：筛选/锁行、从飞书重建并核验源字节、控制云端浏览器原生附件交接、最终飞书读回验收。
+- **普通 ChatGPT 媒体页**：仅处理已原生附入的一个 MP4，验证自身本地文件，运行 v0.4.8，append 三件成品。
+- **浏览器**：只上传已核验的源 MP4 到该页面；不处理媒体、不写飞书。
+- **飞书**：输入和结果持久层；只允许 append-only 成品上传与远端读回。
+- **WorkBuddy**：不参与。
 
-## Work Mode 纯线上执行
+`chatgpt_widget_transfer_ready`、资源链接、临时 URL、源端 SHA 都不是媒体页已有输入文件的证据。输入只有在控制端重建→原生上传→媒体页 stat/SHA/ffprobe 全部通过后才能处理。
 
-唯一正式操作说明是 `ONLINE_WORK_MODE.md`，固定启动文本是 `PROMPT_FOR_CHATGPT.md`。在已连接飞书 MCP 的 Work Mode 窗口中，流程为：
-
-`剧情视图筛选 → 锁定一条 → 原生文件桥验收 → clipflow reference → 本地三件验证 → 同记录追加上传 → 远端逐件 SHA-256 读回`
-
-输入桥只有在处理运行时能对源 MP4 实际执行路径读取、字节数、SHA-256 和 ffprobe 时才通过。仅返回 `chatgpt_widget_transfer_ready`、临时 URL、resource link 或源端 SHA 都是 `INPUT_BRIDGE_HOLD`，不得开始处理或写任何成品。一个运行窗口串行处理，失败只 HOLD 当前记录；不得跳过、猜字段、修改受保护业务字段、覆盖或删除既有附件。
-
-## 代码入口
-
-`clipflow reference --input <source.mp4> --out <out-dir>` 生成三件最终交付。打包由 `clipflow.delivery.build_final_delivery_packages` 负责。它拒绝时长/截图元数据/manifest/样张/CRC/文案约束不合格的输出。
-
-所有远端上传都是 append-only；完成仅以目标记录读回的文件名、大小、完整 SHA-256 与本地一致为准。没有读回，不得报告完成。
+固定启动入口见 [PROMPT_FOR_CHATGPT.md](PROMPT_FOR_CHATGPT.md)。
