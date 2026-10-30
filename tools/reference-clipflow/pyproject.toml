@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reference-clipflow"
-version = "0.4.7"
-description = "Stage-one reference video segmentation, numbered watermark, ASR/SRT, and standalone transcript"
+version = "0.4.8"
+description = "Stage-one reference video segmentation, numbered watermark, ASR/SRT, and final two-ZIP plus standalone transcript delivery"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23", "opencv-python-headless>=4.6", "scipy>=1.9", "pytesseract>=0.3.10"]
