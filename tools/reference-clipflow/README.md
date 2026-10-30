@@ -1,76 +1,51 @@
 # Reference ClipFlow v0.4.8
 
-Reference ClipFlow is a first-stage Python + FFmpeg workflow for cutting one original reference MP4 into short numbered clips. The active release produces a final **two ZIP plus one TXT** delivery and can be directed by a connected ChatGPT Work Mode window through a Feishu Bitable record.
+ClipFlow 只做第一阶段：把一条原始对标 MP4 按严格合同切成编号短片。唯一线上执行线、固定提示词和飞书绑定分别见：
 
-It does not run the historical second stage: no new-clip assembly, grading, voice replacement, or burned subtitles.
+- [ONLINE_WORK_MODE.md](ONLINE_WORK_MODE.md) — 唯一正式流程母本
+- [PROMPT_FOR_CHATGPT.md](PROMPT_FOR_CHATGPT.md) — Work Mode 启动词
+- [BITABLE_WORKFLOW.md](BITABLE_WORKFLOW.md) — 表字段与回填合同
 
-## Non-negotiable result contract
+不要使用仓库或历史聊天中的其它流程描述。
 
-Every accepted source produces exactly these formal deliverables:
+## 输出
 
-| File | Required contents |
+一次合格处理的正式交付恰好三件：
+
+| 文件 | 内容 |
 |---|---|
-| `videos_and_screenshot.zip` | `segments/NNN_镜头.mp4` and matching `segment_stills/NNN_镜头.jpg` only |
-| `supporting_materials.zip` | SRT, per-segment MD, manifest, CSV, style JSON and source-frame samples |
-| `文案.txt` | Standalone UTF-8-no-BOM plain transcript; one spoken cue per line, no IDs, timecodes, filenames, Markdown or explanation |
+| `videos_and_screenshot.zip` | `segments/` 中连续编号 MP4 与 `segment_stills/` 中同编号 JPG，且仅这些媒体文件 |
+| `supporting_materials.zip` | SRT、逐段 MD、manifest、CSV、样式和样张等其余支持材料 |
+| `文案.txt` | ZIP 外、UTF-8 无 BOM、逐行纯台词 |
 
-The TXT must not be inside either ZIP. Old `ClipFlow_完整交付.zip`, `numbered_segments.zip` and `subtitle_reference_stylekit.zip` are no longer formal deliveries.
+旧 `ClipFlow_完整交付.zip`、`numbered_segments.zip`、`subtitle_reference_stylekit.zip` 不是当前成品。
 
-## Quality contract
+## 媒体合同
 
-- Actual encoded duration of every clip is **strictly more than 3 seconds and no more than 8 seconds**.
-- Cut points preferentially follow visual shot changes, but every non-final cut must be a credible complete sentence ending from raw ASR or a user-verified SRT. If all three constraints cannot be satisfied, the run writes `cut_conflict.json` and stops.
-- One JPG accompanies every MP4. It is selected only from the first ten sequential decoded frames of that clip’s original source, prioritizing fewest Chinese OCR characters, then OCR area, clarity/stability and earlier frame. The matching C-style number watermark is added only after selection.
-- `文案.txt` needs trustworthy audio ASR or verified SRT. Visual OCR alone cannot prove speech sentence boundaries or invent spoken copy.
-- The packager checks member lists, file sizes, ZIP CRC, sequential numbering, MP4/JPG mapping, manifest mapping and standalone TXT encoding before output.
+- 每段实际编码时长严格大于 3 秒、且不高于 8 秒；
+- 切点优先贴近镜头变化，但只能是可信完整句尾；没有合法方案即输出 `cut_conflict.json` 并 HOLD；
+- 每段截图仅从该段原视频开头连续前10帧中，以中文 OCR 可见文字最少优先选择，选中后才加 C 同号水印；
+- 可信 ASR 或用户校对 SRT 是句尾和 `文案.txt` 的前提，视觉 OCR 不能编造口播。
 
-## Local use
+## 本地运行
 
-Prerequisites: Python 3.10+, `ffmpeg`, `ffprobe`, Chinese Tesseract (`chi_sim` or `HanS`) and an ASR runtime, or a verified SRT.
+需要 Python 3.10+、FFmpeg/FFprobe、Tesseract 中文语言包与可信 ASR 或校对 SRT：
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
 pip install -e '.[asr,test]'
-clipflow doctor
-clipflow reference --input "source.mp4" --out "delivery" --model small --language zh
-```
-
-With a verified SRT:
-
-```bash
-clipflow reference --input "source.mp4" --out "delivery" --srt "checked.srt"
-```
-
-A successful output directory includes working files (`segments/`, `segment_stills/`, SRT, MD, manifest, samples) and these three final upload files:
-
-```text
-delivery/
-├── videos_and_screenshot.zip
-├── supporting_materials.zip
-└── 文案.txt
-```
-
-Run the delivery tests with:
-
-```bash
+clipflow reference --input source.mp4 --out delivery --model small --language zh
+# 或：clipflow reference --input source.mp4 --out delivery --srt checked.srt
 pytest -q tests/test_delivery.py
 ```
 
-## Pure online Work Mode use
+## 线上边界
 
-The online workflow is defined in [ONLINE_WORK_MODE.md](ONLINE_WORK_MODE.md); its copy/paste command is [PROMPT_FOR_CHATGPT.md](PROMPT_FOR_CHATGPT.md). It uses this Bitable binding:
+当前已验证的输入桥不是普通 ChatGPT 页面直接调用飞书物化。它是：
 
-- app: `TRbibTAzmagpV4shYbcchcIVnhd`
-- table: `tblgYhWtUJDDKJjJ`
-- view: `剧情` / `vewG1nXQcP`
-- input: `对标视频、图文`
-- output: `处理后音、视频`
+```text
+飞书附件字节 → Work Mode 控制端下载/重建+SHA核验
+→ 云端浏览器原生上传 → 普通 ChatGPT 媒体页再次核验
+→ ClipFlow → 飞书 append + 控制端远端 SHA 读回
+```
 
-The controller first verifies that `ZED`, `二次分类型`, the input attachment and the output attachment fields are actually readable; only then does it select rows whose output is empty and whose fields satisfy the documented predicate. A missing field is `BINDING_HOLD`, not permission to guess. It processes rows serially and append-uploads exactly the three final files, then re-reads each attachment and verifies complete SHA-256.
-
-**Important:** a Feishu resource link, temporary URL, remote SHA or `chatgpt_widget_transfer_ready` does not put an MP4 in the Work Mode media runtime. Until the connector returns a real current-runtime path that passes `stat`, local SHA-256 and `ffprobe`, the correct result is `INPUT_BRIDGE_HOLD`; it must not process or upload a fabricated delivery.
-
-## Repository boundary
-
-This repository contains code, tests and public instructions only. Do not commit user video, audio, transcripts, private fonts, OAuth credentials, API keys or attachment tokens.
+这条线全程云端、无需 WorkBuddy。
