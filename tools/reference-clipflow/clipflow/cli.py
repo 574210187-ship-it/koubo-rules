@@ -394,7 +394,7 @@ def make_reference(args) -> None:
               "transcript_document":"segments_transcript.md",
               "plain_script_document":"文案.txt",
               "plain_script_delivery":"standalone_outside_two_delivery_zips",
-              "delivery_packages":{"media":"videos_and_screenshots.zip",
+              "delivery_packages":{"media":"videos_and_screenshot.zip",
                                    "support":"supporting_materials.zip",
                                    "plain_script":"文案.txt"},
               "transcript_alignment":alignment,
