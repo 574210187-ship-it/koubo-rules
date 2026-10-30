@@ -1,13 +1,17 @@
-# Reference ClipFlow｜第一阶段专用启动指令（v0.4.7）
+# ClipFlow｜Work Mode 固定启动提示词（v0.4.8）
 
-用户当前明确要求：**只执行第一阶段：对标原视频拆分与交付**。本窗口和其他AI执行窗口都不得调用历史第二阶段`assemble`、合并新片段、换声、烧字幕或展开第二阶段待办。历史能力保留源码但当前正式CLI禁用。所有业务输入、输出均经用户固定的飞书多维表；**不要求聊天上传视频**。
+把下面整段发送到**同一账号、已连接飞书 MCP 的 Work Mode 窗口**即可。它不适用于普通聊天页，不使用 WorkBuddy 或浏览器自动化。
 
-## 当前账号（优先复用程序和已连接飞书）
+```text
+执行 ClipFlow v0.4.8 纯线上第一阶段。先读取当前仓库 tools/reference-clipflow 的 AGENTS.md、ONLINE_WORK_MODE.md 和 BITABLE_WORKFLOW.md，并严格按它们执行；不要启动第二阶段、不要打开普通 ChatGPT 子页面、不要使用 WorkBuddy、不要要求我手工上传视频。
 
-> 执行 ClipFlow 第一阶段最新版。先读取 README.md、AGENTS.md、BITABLE_WORKFLOW.md，优先复用当前已安装程序及已授权飞书CLI/MCP/API，并重新验证对我固定的飞书表格能够读取“备注=未完成”记录、下载完整原视频附件字节、将**所有正式成品文件（必须含完整ZIP和ZIP外独立纯文字文案.txt）**追加上传到原记录指定多附件成品格、远端读回。全部门禁通过后，每次默认只处理一条未完成对标视频，按严守句终和(3,8]秒规则执行`clipflow reference`，生成编号MP4、开头同号截图、SRT/MD/样张等并核实完整ZIP和纯TXT分离；按实际交付清单逐件回填，所有文件读回后才按已批准的字段标记完成。**不处理第二阶段；不让我在聊天上传视频**。未绑定表/字段或任何权限、TXT上传、ASR、读回验证失败时HOLD，不猜表、不改其他记录。
+固定绑定：app_token=TRbibTAzmagpV4shYbcchcIVnhd；table_id=tblgYhWtUJDDKJjJ；剧情 view_id=vewG1nXQcP；输入附件字段=对标视频、图文；输出附件字段=处理后音、视频；识别字段=视频编号。扫描剧情视图中输出字段为空、输入恰有一个 MP4，并且（ZED 含“拆分”或 ZED 为空且二次分类为“剧情”）的全部记录；稳定排序后逐行串行执行。
 
-## 其他ChatGPT账号（GitHub公开仓库）
+每行先锁定 record_id 和视频编号，实际验证飞书连接、源附件、本地原生文件路径、stat字节数、SHA-256 和 ffprobe。只有源 MP4 已真实进入当前 Work Mode 媒体运行时，才运行 clipflow reference。chatgpt_widget_transfer_ready、临时下载链接、resource link 或仅服务端 SHA 一律是 INPUT_BRIDGE_HOLD：不得处理、不得上传、不得改任何字段；报告该行 HOLD 后停止本次运行。
 
-> 加载 https://github.com/574210187-ship-it/koubo-rules/tree/main/tools/reference-clipflow 的正式版，读取 README.md、AGENTS.md、BITABLE_WORKFLOW.md、PROMPT_FOR_CHATGPT.md，**只执行第一阶段`clipflow reference`**，第二阶段`assemble`已停用。先自查用户预先授权的飞书CLI/MCP/API，确认能从用户固定表筛选备注为“未完成”的原视频记录、下载真实完整字节，并把所有必交文件（完整ZIP和独立纯文案TXT等）追加上传到同一记录成品多附件格、远端读回才标完成。缺真实表/权限/附件TXT上传能力则HOLD，不猜字段、不让用户在聊天发视频、不执行新片段合并。
+处理时严格执行：每段实际时长 >3 秒且 <=8 秒；切点优先镜头变化但必须是完整句尾；无解输出 cut_conflict.json 并 HOLD；每段截图只从开头前10帧选文字最少的一帧，选好才加同号 C 水印。成功时只生成并验证 videos_and_screenshot.zip、supporting_materials.zip、文案.txt：第一个ZIP只放编号MP4+对应JPG，第二个ZIP放全部支持材料，文案.txt独立、UTF-8无BOM、每行纯台词且绝不进入ZIP。
 
-只有在用户已经固定真实表格和字段且AI自查通过的情况下，日常可以只说“执行ClipFlow第一阶段”。当前版本**不是**任意账号自动继承OAuth权限、私密ASR密钥或飞书表记录，也不是后台定时调度器。
+将这三件以 append-only 方式上传到同一 record_id 的处理后音、视频字段；使用 record_id+v0.4.8+文件SHA-256 幂等键。然后读回同一记录并逐件以完整SHA-256核验名称、大小和内容。三件全部读回一致才报告该行完成并继续下一行。不得覆盖或删除附件，不得改执行记录或其他业务字段。没有符合条件的行报告 NO_ELIGIBLE_ROWS。
+```
+
+真正可全自动的前提是飞书连接器能把附件原生物化到**当前 Work Mode**媒体运行时。若尚不能，以上提示会在 `INPUT_BRIDGE_HOLD` 正确停止，而不会制造假的三件成品。
