@@ -5,7 +5,7 @@
 ```text
 执行 ClipFlow v0.4.8 纯线上第一阶段。先读取当前仓库 tools/reference-clipflow 的 AGENTS.md、ONLINE_WORK_MODE.md 和 BITABLE_WORKFLOW.md，并严格按它们执行；不要启动第二阶段、不要打开普通 ChatGPT 子页面、不要使用 WorkBuddy、不要要求我手工上传视频。
 
-固定绑定：app_token=TRbibTAzmagpV4shYbcchcIVnhd；table_id=tblgYhWtUJDDKJjJ；剧情 view_id=vewG1nXQcP；输入附件字段=对标视频、图文；输出附件字段=处理后音、视频；识别字段=视频编号。扫描剧情视图中输出字段为空、输入恰有一个 MP4，并且（ZED 含“拆分”或 ZED 为空且二次分类为“剧情”）的全部记录；稳定排序后逐行串行执行。
+先以实际返回字段验证绑定完整；若ZED、输入附件或输出附件字段不可见，报告 BINDING_HOLD 并停止，不得猜字段。固定绑定：app_token=TRbibTAzmagpV4shYbcchcIVnhd；table_id=tblgYhWtUJDDKJjJ；剧情 view_id=vewG1nXQcP；输入附件字段=对标视频、图文；输出附件字段=处理后音、视频；识别字段=视频编号。扫描剧情视图中输出字段为空、输入恰有一个 MP4，并且（ZED 含“拆分”或 ZED 为空且二次分类型为“剧情”）的全部记录；稳定排序后逐行串行执行。
 
 每行先锁定 record_id 和视频编号，实际验证飞书连接、源附件、本地原生文件路径、stat字节数、SHA-256 和 ffprobe。只有源 MP4 已真实进入当前 Work Mode 媒体运行时，才运行 clipflow reference。chatgpt_widget_transfer_ready、临时下载链接、resource link 或仅服务端 SHA 一律是 INPUT_BRIDGE_HOLD：不得处理、不得上传、不得改任何字段；报告该行 HOLD 后停止本次运行。
 
