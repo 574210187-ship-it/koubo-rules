@@ -1,51 +1,51 @@
-# Reference ClipFlow v0.4.8
+# ClipFlow Visual v0.6.0
 
-ClipFlow 只做第一阶段：把一条原始对标 MP4 按严格合同切成编号短片。唯一线上执行线、固定提示词和飞书绑定分别见：
+This is the only production package for this workflow. It inherits the v0.4.8
+structure—strict global cut planning, opening-frame stills, two ZIPs plus a
+standalone TXT, verification, and append-only Feishu handoff—while using only
+decoded video frames as its text evidence.
 
-- [ONLINE_WORK_MODE.md](ONLINE_WORK_MODE.md) — 唯一正式流程母本
-- [PROMPT_FOR_CHATGPT.md](PROMPT_FOR_CHATGPT.md) — Work Mode 启动词
-- [BITABLE_WORKFLOW.md](BITABLE_WORKFLOW.md) — 表字段与回填合同
+## Non-negotiable gates
 
-不要使用仓库或历史聊天中的其它流程描述。
+- Every encoded segment must be strictly longer than 3 seconds and no longer
+  than 8 seconds.
+- A cut must be a verified visible-caption sentence endpoint. The planner gives
+  scene boundaries priority only among legal endpoints.
+- The opening JPG is selected from the first ten original decoded frames by
+  least visible text, then receives its matching `C001`-style watermark.
+- The only success payload is `videos_and_screenshot.zip`,
+  `supporting_materials.zip`, and UTF-8-without-BOM `文案.txt`.
+- The upload contract is append-only to `处理后音视频`; the existing Feishu MCP
+  must read back all three remote attachments and their SHA-256 values.
 
-## 输出
+## Visual evidence gates
 
-一次合格处理的正式交付恰好三件：
+Before any segment is encoded, the program writes `cut_conflict.json` and exits
+with status 2 when any of the following occurs:
 
-| 文件 | 内容 |
-|---|---|
-| `videos_and_screenshot.zip` | `segments/` 中连续编号 MP4 与 `segment_stills/` 中同编号 JPG，且仅这些媒体文件 |
-| `supporting_materials.zip` | SRT、逐段 MD、manifest、CSV、样式和样张等其余支持材料 |
-| `文案.txt` | ZIP 外、UTF-8 无 BOM、逐行纯台词 |
+1. `OCR_EMPTY`: no visible subtitle text was found in multi-frame sampling.
+2. `OCR_UNRELIABLE`: there were isolated readings but no reliable multi-frame
+   cue.
+3. `SENTENCE_END_UNVERIFIABLE`: visible text exists but no complete sentence
+   endpoint can be certified from visible terminal punctuation or a separately
+   supplied visual-only review bound to this run's OCR timeline.
 
-旧 `ClipFlow_完整交付.zip`、`numbered_segments.zip`、`subtitle_reference_stylekit.zip` 不是当前成品。
+The review file is a safety gate, not a shortcut: it must declare
+`visible_video_frames_only`, carry the SHA-256 of this run's
+`visual_ocr_timeline.json`, reference an existing cue, and provide visual
+evidence for each endpoint. The program rejects it otherwise.
 
-## 媒体合同
-
-- 每段实际编码时长严格大于 3 秒、且不高于 8 秒；
-- 切点优先贴近镜头变化，但只能是可信完整句尾；没有合法方案即输出 `cut_conflict.json` 并 HOLD；
-- 每段截图仅从该段原视频开头连续前10帧中，以中文 OCR 可见文字最少优先选择，选中后才加 C 同号水印；
-- 可信 ASR 或用户校对 SRT 是句尾和 `文案.txt` 的前提，视觉 OCR 不能编造口播。
-
-## 本地运行
-
-需要 Python 3.10+、FFmpeg/FFprobe、Tesseract 中文语言包与可信 ASR 或校对 SRT：
+## Run
 
 ```bash
-pip install -e '.[asr,test]'
-clipflow reference --input source.mp4 --out delivery --model small --language zh
-# 或：clipflow reference --input source.mp4 --out delivery --srt checked.srt
-pytest -q tests/test_delivery.py
+clipflow-visual run --input source.mp4 --out output
 ```
 
-## 线上边界
+When a visual reviewer has verified valid complete endpoints, rerun into an
+empty output directory with its timeline-bound review:
 
-当前已验证的输入桥不是普通 ChatGPT 页面直接调用飞书物化。它是：
-
-```text
-飞书附件字节 → Work Mode 控制端下载/重建+SHA核验
-→ 云端浏览器原生上传 → 普通 ChatGPT 媒体页再次核验
-→ ClipFlow → 飞书 append + 控制端远端 SHA 读回
+```bash
+clipflow-visual run --input source.mp4 --out output --review-json review.json
 ```
 
-这条线全程云端、无需 WorkBuddy。
+No earlier package, especially v0.5, is a production fallback.
