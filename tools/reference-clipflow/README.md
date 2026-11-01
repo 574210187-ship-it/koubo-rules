@@ -15,7 +15,7 @@ decoded video frames as its text evidence.
   least visible text, then receives its matching `C001`-style watermark.
 - The only success payload is `videos_and_screenshot.zip`,
   `supporting_materials.zip`, and UTF-8-without-BOM `文案.txt`.
-- The upload contract is append-only to `处理后音视频`; the existing Feishu MCP
+- The upload contract is append-only to `处理后音、视频`; the existing Feishu MCP
   must read back all three remote attachments and their SHA-256 values.
 
 ## Visual evidence gates
