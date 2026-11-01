@@ -186,7 +186,7 @@ def run(args: argparse.Namespace) -> int:
     manifest = {"program_version": __version__, "source_sha256": sha256(source), "source_video_info": info, "visual_only": True, "cuts": cuts, "segments": entries}
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _write_csv(out, entries)
-    contract = {"mode": "append_only", "target_field": "处理后音视频", "artifacts": ["videos_and_screenshot.zip", "supporting_materials.zip", "文案.txt"], "remote_readback_required": True, "uploader": "existing_bitable_mcp"}
+    contract = {"mode": "append_only", "target_field": "处理后音、视频", "artifacts": ["videos_and_screenshot.zip", "supporting_materials.zip", "文案.txt"], "remote_readback_required": True, "uploader": "existing_bitable_mcp"}
     (out / "feishu_append_contract.json").write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     # Placeholder permits the package verifier to include its own final receipt.
     (out / "verification.json").write_text("{}\n", encoding="utf-8")
